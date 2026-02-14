@@ -216,7 +216,7 @@ def create_status_table(config):
     table.add_column("Value", style="dim")
     
     ollama = find_ollama()
-    table.add_row("🧠 Ollama", "[green]✓ Ready[/]" if ollama else "[yellow]○ Pending[/]", config.get("OLLAMA_MODEL", "llama3.2"))
+    table.add_row("🧠 Ollama", "[green]✓ Ready[/]" if ollama else "[yellow]○ Pending[/]", config.get("OLLAMA_MODEL", "gemma3:latest"))
     table.add_row("💬 Discord", "[green]✓ Configured[/]" if config.get("DISCORD_BOT_TOKEN") else "[dim]─ Skipped[/]", "")
     table.add_row("📱 Telegram", "[green]✓ Configured[/]" if config.get("TELEGRAM_BOT_TOKEN") else "[dim]─ Skipped[/]", "")
     table.add_row("📧 Google", "[green]✓ Configured[/]" if config.get("GOOGLE_CREDENTIALS_PATH") else "[dim]─ Skipped[/]", "")
@@ -298,7 +298,7 @@ def setup():
     
     print_step_header(1, 6, "Ollama Configuration", "Local AI model settings")
     new_env["OLLAMA_HOST"] = prompt_with_help("Ollama host", default=existing.get("OLLAMA_HOST", "http://localhost:11434"))
-    new_env["OLLAMA_MODEL"] = prompt_with_help("Default model", default=existing.get("OLLAMA_MODEL", "llama3.2"))
+    new_env["OLLAMA_MODEL"] = prompt_with_help("Default model", default=existing.get("OLLAMA_MODEL", "gemma3:latest"))
     console.print("[green]  ✓ Ollama settings saved[/]")
     
     print_step_header(2, 6, "Discord Bot", "Chat with your AI on Discord")
@@ -354,7 +354,7 @@ def setup():
     
     if ollama_path:
         ensure_ollama_running(ollama_path)
-        model = new_env.get("OLLAMA_MODEL", "llama3.2")
+        model = new_env.get("OLLAMA_MODEL", "gemma3:latest")
         if ask_with_help(f"Download model '{model}'?", default=True):
             console.print()
             with Progress(SpinnerColumn(style="cyan"), TextColumn("[progress.description]{task.description}"), console=console) as progress:
