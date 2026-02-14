@@ -1,0 +1,160 @@
+# Local Pigeon Configuration
+# User-editable settings for the AI agent
+
+# =============================================================================
+# MODEL SETTINGS
+# =============================================================================
+model:
+  # Default Ollama model to use
+  name: llama3.2
+  # Alternative models to offer in UI
+  alternatives:
+    - mistral
+    - qwen2.5
+    - phi3
+    - gemma2
+  # Context window size (tokens)
+  context_length: 8192
+  # Temperature for generation (0.0 - 1.0)
+  temperature: 0.7
+
+# =============================================================================
+# AGENT BEHAVIOR
+# =============================================================================
+agent:
+  # System prompt for the agent
+  system_prompt: |
+    You are Local Pigeon, a helpful AI assistant running locally on the user's device.
+    You have access to various tools including Google Workspace (Gmail, Calendar, Drive),
+    web search, and payment capabilities.
+    
+    Always be helpful, concise, and respect user privacy.
+    When using tools, explain what you're doing before taking action.
+    For payments above the approval threshold, always request user confirmation.
+  
+  # Maximum conversation history to send to model
+  max_history_messages: 20
+  
+  # Enable tool usage
+  tools_enabled: true
+
+# =============================================================================
+# PLATFORM SETTINGS
+# =============================================================================
+platforms:
+  discord:
+    enabled: false
+    # Respond to mentions only, or all messages in allowed channels
+    mention_only: true
+    # Show typing indicator while generating
+    show_typing: true
+    # Maximum response length before splitting
+    max_message_length: 2000
+    
+  telegram:
+    enabled: false
+    # Show "typing..." while generating
+    show_typing: true
+    # Parse mode for messages (HTML or Markdown)
+    parse_mode: HTML
+
+# =============================================================================
+# GOOGLE WORKSPACE
+# =============================================================================
+google:
+  gmail:
+    enabled: false
+    # Default labels to search
+    default_labels:
+      - INBOX
+    # Maximum emails to fetch per query
+    max_results: 10
+    
+  calendar:
+    enabled: false
+    # Default calendar ID
+    calendar_id: primary
+    # Default event duration (minutes)
+    default_duration: 60
+    
+  drive:
+    enabled: false
+    # Default folder for uploads
+    upload_folder_id: root
+
+# =============================================================================
+# PAYMENT SETTINGS
+# =============================================================================
+payments:
+  stripe:
+    enabled: false
+    # Virtual card spending controls
+    spending_limit_per_transaction: 50.00
+    allowed_merchant_categories: []  # Empty = all allowed
+    blocked_merchant_categories:
+      - gambling
+      - adult_entertainment
+      
+  crypto:
+    enabled: false
+    # Default network for transactions
+    network: base
+    # Supported tokens
+    tokens:
+      - USDC
+      - ETH
+
+  # Human-in-the-loop approval
+  approval:
+    # Require approval for amounts above this (USD)
+    threshold: 25.00
+    # Daily spending limit (USD)
+    daily_limit: 100.00
+    # Approval timeout (seconds)
+    timeout: 300
+
+# =============================================================================
+# WEB SEARCH
+# =============================================================================
+web:
+  search:
+    enabled: true
+    # Search provider (duckduckgo or searxng)
+    provider: duckduckgo
+    # SearXNG instance URL (if using searxng)
+    searxng_url: ""
+    # Maximum results to return
+    max_results: 5
+    # Safe search (off, moderate, strict)
+    safe_search: moderate
+    
+  fetch:
+    enabled: true
+    # Maximum content length to extract (characters)
+    max_content_length: 10000
+    # Request timeout (seconds)
+    timeout: 30
+    # User agent string
+    user_agent: "LocalPigeon/0.1"
+
+# =============================================================================
+# STORAGE
+# =============================================================================
+storage:
+  # Database file location (relative to data directory)
+  database: local_pigeon.db
+  # Conversation history retention (days, 0 = forever)
+  history_retention_days: 90
+  # Encrypt stored credentials
+  encrypt_credentials: true
+
+# =============================================================================
+# WEB UI
+# =============================================================================
+ui:
+  # Theme (default, soft, glass)
+  theme: soft
+  # Show tool execution details
+  show_tool_details: true
+  # Enable chat history in UI
+  show_history: true

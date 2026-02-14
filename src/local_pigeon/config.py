@@ -1,0 +1,301 @@
+"""
+Local Pigeon Configuration Management
+
+Handles loading configuration from environment variables, .env files,
+and config.yaml with proper validation using Pydantic.
+"""
+
+import os
+from pathlib import Path
+from typing import Any
+
+import yaml
+from pydantic import Field, field_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def get_data_dir() -> Path:
+    """Get the data directory for Local Pigeon."""
+    data_dir = os.environ.get("DATA_DIR")
+    if data_dir:
+        return Path(data_dir)
+    
+    # Default to ~/.local_pigeon or current directory
+    home_dir = Path.home() / ".local_pigeon"
+    if home_dir.exists():
+        return home_dir
+    
+    return Path.cwd()
+
+
+def load_yaml_config() -> dict[str, Any]:
+    """Load configuration from config.yaml if it exists."""
+    data_dir = get_data_dir()
+    config_path = data_dir / "config.yaml"
+    
+    if not config_path.exists():
+        # Try current directory
+        config_path = Path("config.yaml")
+    
+    if config_path.exists():
+        with open(config_path) as f:
+            return yaml.safe_load(f) or {}
+    
+    return {}
+
+
+class OllamaSettings(BaseSettings):
+    """Ollama LLM settings."""
+    
+    host: str = Field(default="http://localhost:11434", description="Ollama API host")
+    model: str = Field(default="llama3.2", description="Default model to use")
+    context_length: int = Field(default=8192, description="Context window size")
+    temperature: float = Field(default=0.7, ge=0.0, le=2.0, description="Generation temperature")
+    
+    model_config = SettingsConfigDict(env_prefix="OLLAMA_")
+
+
+class DiscordSettings(BaseSettings):
+    """Discord bot settings."""
+    
+    bot_token: str = Field(default="", description="Discord bot token")
+    allowed_channels: list[str] = Field(default_factory=list, description="Allowed channel IDs")
+    admin_users: list[str] = Field(default_factory=list, description="Admin user IDs")
+    enabled: bool = Field(default=False, description="Enable Discord bot")
+    mention_only: bool = Field(default=True, description="Only respond to mentions")
+    show_typing: bool = Field(default=True, description="Show typing indicator")
+    max_message_length: int = Field(default=2000, description="Max message length")
+    
+    model_config = SettingsConfigDict(env_prefix="DISCORD_")
+    
+    @field_validator("allowed_channels", "admin_users", mode="before")
+    @classmethod
+    def parse_comma_separated(cls, v: Any) -> list[str]:
+        if isinstance(v, str):
+            return [x.strip() for x in v.split(",") if x.strip()]
+        return v or []
+
+
+class TelegramSettings(BaseSettings):
+    """Telegram bot settings."""
+    
+    bot_token: str = Field(default="", description="Telegram bot token")
+    allowed_users: list[str] = Field(default_factory=list, description="Allowed user IDs")
+    enabled: bool = Field(default=False, description="Enable Telegram bot")
+    show_typing: bool = Field(default=True, description="Show typing indicator")
+    parse_mode: str = Field(default="HTML", description="Message parse mode")
+    
+    model_config = SettingsConfigDict(env_prefix="TELEGRAM_")
+    
+    @field_validator("allowed_users", mode="before")
+    @classmethod
+    def parse_comma_separated(cls, v: Any) -> list[str]:
+        if isinstance(v, str):
+            return [x.strip() for x in v.split(",") if x.strip()]
+        return v or []
+
+
+class GoogleSettings(BaseSettings):
+    """Google Workspace settings."""
+    
+    credentials_path: str = Field(default="credentials.json", description="OAuth credentials file")
+    gmail_enabled: bool = Field(default=False, description="Enable Gmail integration")
+    calendar_enabled: bool = Field(default=False, description="Enable Calendar integration")
+    drive_enabled: bool = Field(default=False, description="Enable Drive integration")
+    calendar_id: str = Field(default="primary", description="Default calendar ID")
+    
+    model_config = SettingsConfigDict(env_prefix="GOOGLE_")
+
+
+class PaymentApprovalSettings(BaseSettings):
+    """Payment approval settings."""
+    
+    threshold: float = Field(default=25.0, ge=0, description="Approval threshold (USD)")
+    daily_limit: float = Field(default=100.0, ge=0, description="Daily spending limit (USD)")
+    timeout: int = Field(default=300, ge=30, description="Approval timeout (seconds)")
+
+
+class StripeSettings(BaseSettings):
+    """Stripe payment settings."""
+    
+    api_key: str = Field(default="", description="Stripe API key")
+    webhook_secret: str = Field(default="", description="Stripe webhook secret")
+    enabled: bool = Field(default=False, description="Enable Stripe payments")
+    spending_limit_per_transaction: float = Field(default=50.0, description="Per-transaction limit")
+    
+    model_config = SettingsConfigDict(env_prefix="STRIPE_")
+
+
+class CryptoSettings(BaseSettings):
+    """Cryptocurrency wallet settings."""
+    
+    cdp_api_key_name: str = Field(default="", description="Coinbase CDP API key name")
+    cdp_api_key_private_key: str = Field(default="", description="Coinbase CDP private key")
+    enabled: bool = Field(default=False, description="Enable crypto wallet")
+    network: str = Field(default="base", description="Default network")
+    
+    model_config = SettingsConfigDict(env_prefix="CDP_")
+
+
+class PaymentSettings(BaseSettings):
+    """Combined payment settings."""
+    
+    stripe: StripeSettings = Field(default_factory=StripeSettings)
+    crypto: CryptoSettings = Field(default_factory=CryptoSettings)
+    approval: PaymentApprovalSettings = Field(default_factory=PaymentApprovalSettings)
+
+
+class WebSearchSettings(BaseSettings):
+    """Web search settings."""
+    
+    enabled: bool = Field(default=True, description="Enable web search")
+    provider: str = Field(default="duckduckgo", description="Search provider")
+    searxng_url: str = Field(default="", description="SearXNG instance URL")
+    max_results: int = Field(default=5, ge=1, le=20, description="Max search results")
+    safe_search: str = Field(default="moderate", description="Safe search level")
+
+
+class WebFetchSettings(BaseSettings):
+    """Web page fetch settings."""
+    
+    enabled: bool = Field(default=True, description="Enable page fetching")
+    max_content_length: int = Field(default=10000, description="Max content length")
+    timeout: int = Field(default=30, description="Request timeout")
+    user_agent: str = Field(default="LocalPigeon/0.1", description="User agent string")
+
+
+class WebSettings(BaseSettings):
+    """Combined web settings."""
+    
+    search: WebSearchSettings = Field(default_factory=WebSearchSettings)
+    fetch: WebFetchSettings = Field(default_factory=WebFetchSettings)
+
+
+class StorageSettings(BaseSettings):
+    """Storage settings."""
+    
+    database: str = Field(default="local_pigeon.db", description="Database filename")
+    history_retention_days: int = Field(default=90, ge=0, description="History retention (0=forever)")
+    encrypt_credentials: bool = Field(default=True, description="Encrypt stored credentials")
+
+
+class UISettings(BaseSettings):
+    """Web UI settings."""
+    
+    host: str = Field(default="127.0.0.1", description="UI host")
+    port: int = Field(default=7860, description="UI port")
+    share: bool = Field(default=False, description="Create public Gradio link")
+    theme: str = Field(default="soft", description="UI theme")
+    show_tool_details: bool = Field(default=True, description="Show tool execution details")
+    show_history: bool = Field(default=True, description="Show chat history")
+    
+    model_config = SettingsConfigDict(env_prefix="WEBUI_")
+
+
+class AgentSettings(BaseSettings):
+    """Agent behavior settings."""
+    
+    system_prompt: str = Field(
+        default="""You are Local Pigeon, a helpful AI assistant running locally on the user's device.
+You have access to various tools including Google Workspace (Gmail, Calendar, Drive),
+web search, and payment capabilities.
+
+Always be helpful, concise, and respect user privacy.
+When using tools, explain what you're doing before taking action.
+For payments above the approval threshold, always request user confirmation.""",
+        description="System prompt for the agent"
+    )
+    max_history_messages: int = Field(default=20, ge=1, description="Max history messages")
+    tools_enabled: bool = Field(default=True, description="Enable tool usage")
+
+
+class Settings(BaseSettings):
+    """Main settings container for Local Pigeon."""
+    
+    # Core settings
+    ollama: OllamaSettings = Field(default_factory=OllamaSettings)
+    agent: AgentSettings = Field(default_factory=AgentSettings)
+    
+    # Platform settings
+    discord: DiscordSettings = Field(default_factory=DiscordSettings)
+    telegram: TelegramSettings = Field(default_factory=TelegramSettings)
+    
+    # Tool settings
+    google: GoogleSettings = Field(default_factory=GoogleSettings)
+    payments: PaymentSettings = Field(default_factory=PaymentSettings)
+    web: WebSettings = Field(default_factory=WebSettings)
+    
+    # Storage and UI
+    storage: StorageSettings = Field(default_factory=StorageSettings)
+    ui: UISettings = Field(default_factory=UISettings)
+    
+    # Security
+    encryption_key: str = Field(default="", description="Encryption key for credentials")
+    
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+    
+    @classmethod
+    def load(cls) -> "Settings":
+        """Load settings from environment and config files."""
+        # Load YAML config first
+        yaml_config = load_yaml_config()
+        
+        # Create settings (env vars override YAML)
+        settings = cls()
+        
+        # Apply YAML config for nested settings that aren't easily set via env
+        if "model" in yaml_config:
+            model_config = yaml_config["model"]
+            if "name" in model_config:
+                settings.ollama.model = model_config["name"]
+            if "context_length" in model_config:
+                settings.ollama.context_length = model_config["context_length"]
+            if "temperature" in model_config:
+                settings.ollama.temperature = model_config["temperature"]
+        
+        if "agent" in yaml_config:
+            agent_config = yaml_config["agent"]
+            if "system_prompt" in agent_config:
+                settings.agent.system_prompt = agent_config["system_prompt"]
+            if "max_history_messages" in agent_config:
+                settings.agent.max_history_messages = agent_config["max_history_messages"]
+            if "tools_enabled" in agent_config:
+                settings.agent.tools_enabled = agent_config["tools_enabled"]
+        
+        if "platforms" in yaml_config:
+            platforms = yaml_config["platforms"]
+            if "discord" in platforms:
+                discord_config = platforms["discord"]
+                for key, value in discord_config.items():
+                    if hasattr(settings.discord, key):
+                        setattr(settings.discord, key, value)
+            if "telegram" in platforms:
+                telegram_config = platforms["telegram"]
+                for key, value in telegram_config.items():
+                    if hasattr(settings.telegram, key):
+                        setattr(settings.telegram, key, value)
+        
+        return settings
+
+
+# Global settings instance
+_settings: Settings | None = None
+
+
+def get_settings() -> Settings:
+    """Get the global settings instance."""
+    global _settings
+    if _settings is None:
+        _settings = Settings.load()
+    return _settings
+
+
+def reload_settings() -> Settings:
+    """Reload settings from disk."""
+    global _settings
+    _settings = Settings.load()
+    return _settings

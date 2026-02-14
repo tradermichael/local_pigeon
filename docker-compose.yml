@@ -1,0 +1,59 @@
+# Local Pigeon Docker Compose
+# Run with: docker-compose up -d
+
+services:
+  # Local Pigeon AI Agent
+  local-pigeon:
+    build: .
+    container_name: local-pigeon
+    restart: unless-stopped
+    ports:
+      - "7860:7860"  # Web UI
+    volumes:
+      - ./data:/app/data           # Persistent data (database, credentials)
+      - ./.env:/app/.env:ro        # Environment configuration
+      - ./config.yaml:/app/config.yaml:ro  # User configuration
+    environment:
+      - OLLAMA_HOST=http://ollama:11434  # Use bundled Ollama
+      - DATA_DIR=/app/data
+    depends_on:
+      ollama:
+        condition: service_healthy
+    networks:
+      - pigeon-network
+
+  # Ollama LLM Server (Optional - remove if using host Ollama)
+  ollama:
+    image: ollama/ollama:latest
+    container_name: local-pigeon-ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"  # Expose for external access
+    volumes:
+      - ollama-data:/root/.ollama  # Persist models
+    environment:
+      - OLLAMA_HOST=0.0.0.0
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - pigeon-network
+    # Uncomment for GPU support (NVIDIA)
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+
+networks:
+  pigeon-network:
+    driver: bridge
+
+volumes:
+  ollama-data:
+    name: local-pigeon-ollama-data
