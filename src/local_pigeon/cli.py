@@ -1,126 +1,270 @@
 """
-Local Pigeon CLI
-
-Command-line interface for managing and running the Local Pigeon agent.
+Local Pigeon CLI - Modern Terminal UI
 """
 
 import asyncio
+import os
+import platform
+import shutil
+import subprocess
 import sys
+import tempfile
+import time
 from pathlib import Path
 from typing import Optional
 
 import typer
-from rich.console import Console
+from rich.console import Console, Group
 from rich.panel import Panel
-from rich.prompt import Confirm, Prompt
+from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
+from rich.prompt import Prompt, Confirm
 from rich.table import Table
+from rich.rule import Rule
+from rich.align import Align
+from rich.box import ROUNDED, DOUBLE, HEAVY, SIMPLE
+from rich.text import Text
+from rich.padding import Padding
 
 from local_pigeon import __version__
 from local_pigeon.config import get_settings, get_data_dir
 
-app = typer.Typer(
-    name="local-pigeon",
-    help="Local AI Agent with Discord/Telegram, Google Workspace & Payments",
-    add_completion=False,
-)
+app = typer.Typer(name="local-pigeon", help="Local AI Agent", add_completion=False)
 console = Console()
 
+LOGO = """
+[bold bright_cyan]╭─────────────────────────────────────────────────────────────────╮[/]
+[bold bright_cyan]│[/]                                                                 [bold bright_cyan]│[/]
+[bold bright_cyan]│[/]   [bold white]██╗      ██████╗  ██████╗ █████╗ ██╗     [/]                  [bold bright_cyan]│[/]
+[bold bright_cyan]│[/]   [bold white]██║     ██╔═══██╗██╔════╝██╔══██╗██║     [/]                  [bold bright_cyan]│[/]
+[bold bright_cyan]│[/]   [bold cyan]██║     ██║   ██║██║     ███████║██║     [/]                  [bold bright_cyan]│[/]
+[bold bright_cyan]│[/]   [bold cyan]██║     ██║   ██║██║     ██╔══██║██║     [/]                  [bold bright_cyan]│[/]
+[bold bright_cyan]│[/]   [dim cyan]███████╗╚██████╔╝╚██████╗██║  ██║███████╗[/]                  [bold bright_cyan]│[/]
+[bold bright_cyan]│[/]   [dim cyan]╚══════╝ ╚═════╝  ╚═════╝╚═╝  ╚═╝╚══════╝[/]                  [bold bright_cyan]│[/]
+[bold bright_cyan]│[/]                                                                 [bold bright_cyan]│[/]
+[bold bright_cyan]│[/]   [bold white]██████╗ ██╗ ██████╗ ███████╗ ██████╗ ███╗   ██╗[/]           [bold bright_cyan]│[/]
+[bold bright_cyan]│[/]   [bold white]██╔══██╗██║██╔════╝ ██╔════╝██╔═══██╗████╗  ██║[/]           [bold bright_cyan]│[/]
+[bold bright_cyan]│[/]   [bold cyan]██████╔╝██║██║  ███╗█████╗  ██║   ██║██╔██╗ ██║[/]           [bold bright_cyan]│[/]
+[bold bright_cyan]│[/]   [bold cyan]██╔═══╝ ██║██║   ██║██╔══╝  ██║   ██║██║╚██╗██║[/]           [bold bright_cyan]│[/]
+[bold bright_cyan]│[/]   [dim cyan]██║     ██║╚██████╔╝███████╗╚██████╔╝██║ ╚████║[/]           [bold bright_cyan]│[/]
+[bold bright_cyan]│[/]   [dim cyan]╚═╝     ╚═╝ ╚═════╝ ╚══════╝ ╚═════╝ ╚═╝  ╚═══╝[/]           [bold bright_cyan]│[/]
+[bold bright_cyan]│[/]                                                                 [bold bright_cyan]│[/]
+[bold bright_cyan]│[/]              [bold yellow]🐦[/] [italic bright_white]Your Local AI Assistant[/] [bold yellow]🐦[/]               [bold bright_cyan]│[/]
+[bold bright_cyan]│[/]                                                                 [bold bright_cyan]│[/]
+[bold bright_cyan]╰─────────────────────────────────────────────────────────────────╯[/]
+"""
 
-def print_banner():
-    """Print the Local Pigeon banner."""
-    banner = """
-[cyan]  _                     _   ____  _                       
- | |    ___   ___ __ _| | |  _ \\(_) __ _  ___  ___  _ __  
- | |   / _ \\ / __/ _` | | | |_) | |/ _` |/ _ \\/ _ \\| '_ \\ 
- | |__| (_) | (_| (_| | | |  __/| | (_| |  __/ (_) | | | |
- |_____\\___/ \\___\\__,_|_| |_|   |_|\\__, |\\___|\___/|_| |_|
-                                   |___/[/cyan]
-    """
-    console.print(banner)
-    console.print(f"[dim]Version {__version__} - Local AI Agent[/dim]\n")
+LOGO_SMALL = """
+[bold bright_cyan]╭──────────────────────────────────────────────╮[/]
+[bold bright_cyan]│[/]  [bold yellow]🐦[/] [bold bright_white]LOCAL PIGEON[/]  [dim]Your Local AI Assistant[/]  [bold bright_cyan]│[/]
+[bold bright_cyan]╰──────────────────────────────────────────────╯[/]
+"""
+
+DISCORD_HELP = """
+[bold bright_cyan]╭─ 📘 Discord Bot Setup ─────────────────────────────────────────╮[/]
+[bold bright_cyan]│[/]                                                                [bold bright_cyan]│[/]
+[bold bright_cyan]│[/]  [bold]Step 1:[/] Go to discord.com/developers/applications             [bold bright_cyan]│[/]
+[bold bright_cyan]│[/]  [bold]Step 2:[/] Click [green]"New Application"[/] and name it                [bold bright_cyan]│[/]
+[bold bright_cyan]│[/]  [bold]Step 3:[/] Go to [yellow]Bot[/] section → Click [green]"Add Bot"[/]                [bold bright_cyan]│[/]
+[bold bright_cyan]│[/]  [bold]Step 4:[/] Click [green]"Copy"[/] under Token                            [bold bright_cyan]│[/]
+[bold bright_cyan]│[/]  [bold]Step 5:[/] Enable [yellow]MESSAGE CONTENT INTENT[/]                       [bold bright_cyan]│[/]
+[bold bright_cyan]│[/]  [bold]Step 6:[/] OAuth2 → URL Generator → Select [cyan]bot[/]                 [bold bright_cyan]│[/]
+[bold bright_cyan]│[/]  [bold]Step 7:[/] Add permissions and invite bot                         [bold bright_cyan]│[/]
+[bold bright_cyan]│[/]                                                                [bold bright_cyan]│[/]
+[bold bright_cyan]╰────────────────────────────────────────────────────────────────╯[/]
+"""
+
+TELEGRAM_HELP = """
+[bold bright_cyan]╭─ 📱 Telegram Bot Setup ────────────────────────────────────────╮[/]
+[bold bright_cyan]│[/]                                                                [bold bright_cyan]│[/]
+[bold bright_cyan]│[/]  [bold]Step 1:[/] Open Telegram and search for [cyan]@BotFather[/]              [bold bright_cyan]│[/]
+[bold bright_cyan]│[/]  [bold]Step 2:[/] Send [green]/newbot[/] command                                [bold bright_cyan]│[/]
+[bold bright_cyan]│[/]  [bold]Step 3:[/] Choose a name and username for your bot               [bold bright_cyan]│[/]
+[bold bright_cyan]│[/]  [bold]Step 4:[/] Copy the token (looks like [dim]123456:ABCdef...[/])          [bold bright_cyan]│[/]
+[bold bright_cyan]│[/]                                                                [bold bright_cyan]│[/]
+[bold bright_cyan]╰────────────────────────────────────────────────────────────────╯[/]
+"""
+
+GOOGLE_HELP = """
+[bold bright_cyan]╭─ 📧 Google Workspace Setup ────────────────────────────────────╮[/]
+[bold bright_cyan]│[/]                                                                [bold bright_cyan]│[/]
+[bold bright_cyan]│[/]  [bold]Step 1:[/] Go to console.cloud.google.com                        [bold bright_cyan]│[/]
+[bold bright_cyan]│[/]  [bold]Step 2:[/] Create a new project                                  [bold bright_cyan]│[/]
+[bold bright_cyan]│[/]  [bold]Step 3:[/] Enable [cyan]Gmail[/], [cyan]Calendar[/], [cyan]Drive[/] APIs                  [bold bright_cyan]│[/]
+[bold bright_cyan]│[/]  [bold]Step 4:[/] Create OAuth credentials ([yellow]Desktop app[/])              [bold bright_cyan]│[/]
+[bold bright_cyan]│[/]  [bold]Step 5:[/] Download and save as [green]credentials.json[/]               [bold bright_cyan]│[/]
+[bold bright_cyan]│[/]                                                                [bold bright_cyan]│[/]
+[bold bright_cyan]╰────────────────────────────────────────────────────────────────╯[/]
+"""
+
+
+def print_banner(small=False):
+    console.clear()
+    console.print(LOGO_SMALL if small else LOGO)
+    console.print(Align.center(f"[dim]v{__version__} • Powered by Ollama • 100% Local[/dim]"))
+    console.print()
+
+
+def print_step_header(step, total, title, description=""):
+    filled = "[bold green]━[/]" * step
+    current = "[bold yellow]●[/]" if step < total else "[bold green]●[/]"
+    empty = "[dim]─[/]" * (total - step)
+    progress_bar = filled + current + empty
+    
+    console.print()
+    console.print(f"[bold bright_cyan]┌─[/] [bold white]Step {step}/{total}[/] [bold bright_cyan]─────────────────────────────────────────────────┐[/]")
+    console.print(f"[bold bright_cyan]│[/]  [bold bright_white]{title}[/]")
+    if description:
+        console.print(f"[bold bright_cyan]│[/]  [dim]{description}[/]")
+    console.print(f"[bold bright_cyan]│[/]  {progress_bar}")
+    console.print(f"[bold bright_cyan]└──────────────────────────────────────────────────────────────┘[/]")
+    console.print()
+
+
+def find_ollama():
+    path = shutil.which("ollama")
+    if path:
+        return path
+    if platform.system() == "Windows":
+        for p in [os.path.expandvars(r"%LOCALAPPDATA%\Programs\Ollama\ollama.exe"),
+                  os.path.expandvars(r"%PROGRAMFILES%\Ollama\ollama.exe")]:
+            if os.path.exists(p):
+                return p
+    return None
+
+
+def install_ollama():
+    if platform.system() != "Windows":
+        console.print("[yellow]Auto-install only on Windows. Visit https://ollama.ai[/yellow]")
+        return None
+    
+    console.print(Panel(
+        "[bold yellow]⚠ Ollama Not Found[/]\n\n"
+        "Ollama is required for local AI inference.",
+        border_style="yellow", box=ROUNDED,
+    ))
+    
+    if not Confirm.ask("[bold]Install Ollama automatically?[/]", default=True):
+        return None
+    
+    import urllib.request
+    with Progress(SpinnerColumn(style="cyan"), TextColumn("[progress.description]{task.description}"),
+                  BarColumn(complete_style="cyan"), TaskProgressColumn(), console=console) as progress:
+        task = progress.add_task("[cyan]Downloading Ollama...[/]", total=100)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            installer = os.path.join(tmpdir, "OllamaSetup.exe")
+            def report(bn, bs, ts):
+                if ts > 0: progress.update(task, completed=min(100, (bn * bs * 100) // ts))
+            urllib.request.urlretrieve("https://ollama.com/download/OllamaSetup.exe", installer, report)
+            progress.update(task, completed=100, description="[green]Download complete![/]")
+            console.print(Panel("[bold]Running installer...[/]", border_style="cyan"))
+            subprocess.run([installer], shell=True)
+    time.sleep(2)
+    return find_ollama()
+
+
+def ensure_ollama_running(ollama_path):
+    import urllib.request
+    try:
+        urllib.request.urlopen("http://localhost:11434/api/tags", timeout=2)
+        return True
+    except: pass
+    console.print("[dim]Starting Ollama server...[/dim]")
+    try:
+        if platform.system() == "Windows":
+            subprocess.Popen([ollama_path, "serve"],
+                creationflags=subprocess.CREATE_NO_WINDOW | subprocess.DETACHED_PROCESS,
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        else:
+            subprocess.Popen([ollama_path, "serve"],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+        for _ in range(10):
+            time.sleep(1)
+            try:
+                urllib.request.urlopen("http://localhost:11434/api/tags", timeout=2)
+                console.print("[green]✓[/] Ollama server started!")
+                return True
+            except: continue
+    except Exception as e:
+        console.print(f"[yellow]⚠[/] Could not start: {e}")
+    return False
+
+
+def ask_with_help(prompt, default=False, help_key=None):
+    default_hint = "[green]Y[/]/n" if default else "y/[green]N[/]"
+    while True:
+        r = Prompt.ask(f"{prompt} [dim][{default_hint}/?][/dim]", default="y" if default else "n").strip().lower()
+        if r == "?":
+            if help_key == "discord": console.print(DISCORD_HELP)
+            elif help_key == "telegram": console.print(TELEGRAM_HELP)
+            elif help_key == "google": console.print(GOOGLE_HELP)
+            else: console.print("[dim]No help available.[/dim]")
+            Prompt.ask("[dim]Press Enter to continue...[/dim]")
+            continue
+        if r in ("y", "yes"): return True
+        if r in ("n", "no", ""): return r == "" and default
+        console.print("[yellow]Enter y, n, or ? for help[/yellow]")
+
+
+def prompt_with_help(prompt, default="", password=False):
+    return Prompt.ask(f"[bold]{prompt}[/]", default=default, password=password)
+
+
+def create_status_table(config):
+    table = Table(box=SIMPLE, show_header=False, padding=(0, 2))
+    table.add_column("Component", style="bold white")
+    table.add_column("Status", justify="center")
+    table.add_column("Value", style="dim")
+    
+    ollama = find_ollama()
+    table.add_row("🧠 Ollama", "[green]✓ Ready[/]" if ollama else "[yellow]○ Pending[/]", config.get("OLLAMA_MODEL", "llama3.2"))
+    table.add_row("💬 Discord", "[green]✓ Configured[/]" if config.get("DISCORD_BOT_TOKEN") else "[dim]─ Skipped[/]", "")
+    table.add_row("📱 Telegram", "[green]✓ Configured[/]" if config.get("TELEGRAM_BOT_TOKEN") else "[dim]─ Skipped[/]", "")
+    table.add_row("📧 Google", "[green]✓ Configured[/]" if config.get("GOOGLE_CREDENTIALS_PATH") else "[dim]─ Skipped[/]", "")
+    table.add_row("💳 Payments", "[green]✓ Configured[/]", f"Approval > ${config.get('PAYMENT_APPROVAL_THRESHOLD', '25.00')}")
+    
+    return Panel(table, title="[bold bright_white]📋 Configuration Summary[/]", border_style="bright_cyan", box=ROUNDED, padding=(1, 2))
 
 
 @app.command()
-def run(
-    host: str = typer.Option(None, "--host", "-h", help="Web UI host"),
-    port: int = typer.Option(None, "--port", "-p", help="Web UI port"),
-    no_ui: bool = typer.Option(False, "--no-ui", help="Disable web UI"),
-    discord_only: bool = typer.Option(False, "--discord-only", help="Run Discord bot only"),
-    telegram_only: bool = typer.Option(False, "--telegram-only", help="Run Telegram bot only"),
-):
+def run(host: str = None, port: int = None, no_ui: bool = False):
     """Start the Local Pigeon agent."""
-    print_banner()
-    
+    print_banner(small=True)
     settings = get_settings()
+    if host: settings.ui.host = host
+    if port: settings.ui.port = port
     
-    # Override settings from CLI
-    if host:
-        settings.ui.host = host
-    if port:
-        settings.ui.port = port
-    
-    console.print("[green]Starting Local Pigeon...[/green]\n")
-    
-    # Check Ollama connection
-    console.print("[dim]Checking Ollama connection...[/dim]")
-    try:
-        import ollama
-        client = ollama.Client(host=settings.ollama.host)
-        models = client.list()
-        console.print(f"[green]✓[/green] Connected to Ollama at {settings.ollama.host}")
-        console.print(f"[dim]  Available models: {', '.join(m['name'] for m in models.get('models', []))[:100]}...[/dim]")
-    except Exception as e:
-        console.print(f"[red]✗[/red] Could not connect to Ollama: {e}")
-        console.print("[yellow]Make sure Ollama is running: ollama serve[/yellow]")
+    ollama_path = find_ollama()
+    if not ollama_path:
+        console.print("[red]✗ Ollama not found.[/] Run [cyan]python -m local_pigeon setup[/] first.")
         raise typer.Exit(1)
+    if not ensure_ollama_running(ollama_path):
+        console.print("[red]✗ Could not start Ollama.[/]")
+        raise typer.Exit(1)
+    console.print(f"[green]✓[/] Ollama connected [dim]({settings.ollama.model})[/]")
     
-    # Import and run the main application
     from local_pigeon.core.agent import LocalPigeonAgent
-    
     async def main():
         agent = LocalPigeonAgent(settings)
-        
         tasks = []
-        
-        # Start platforms
-        if not telegram_only and settings.discord.enabled and settings.discord.bot_token:
-            console.print("[green]✓[/green] Discord bot enabled")
+        if settings.discord.enabled and settings.discord.bot_token:
+            console.print("[green]✓[/] Discord bot enabled")
             from local_pigeon.platforms.discord_adapter import DiscordAdapter
-            discord_adapter = DiscordAdapter(agent, settings.discord)
-            tasks.append(discord_adapter.start())
-        
-        if not discord_only and settings.telegram.enabled and settings.telegram.bot_token:
-            console.print("[green]✓[/green] Telegram bot enabled")
+            tasks.append(DiscordAdapter(agent, settings.discord).start())
+        if settings.telegram.enabled and settings.telegram.bot_token:
+            console.print("[green]✓[/] Telegram bot enabled")
             from local_pigeon.platforms.telegram_adapter import TelegramAdapter
-            telegram_adapter = TelegramAdapter(agent, settings.telegram)
-            tasks.append(telegram_adapter.start())
-        
-        # Start web UI
-        if not no_ui and not discord_only and not telegram_only:
-            console.print(f"[green]✓[/green] Web UI at http://{settings.ui.host}:{settings.ui.port}")
-            from local_pigeon.ui.app import create_ui
-            ui = create_ui(agent, settings)
-            tasks.append(asyncio.to_thread(
-                ui.launch,
-                server_name=settings.ui.host,
-                server_port=settings.ui.port,
-                share=settings.ui.share,
-                prevent_thread_lock=True,
-            ))
-        
+            tasks.append(TelegramAdapter(agent, settings.telegram).start())
+        if not no_ui:
+            console.print(f"[green]✓[/] Web UI at http://{settings.ui.host}:{settings.ui.port}")
+            from local_pigeon.ui.app import launch_ui
+            tasks.append(asyncio.to_thread(launch_ui, settings=settings, server_name=settings.ui.host, server_port=settings.ui.port))
         if not tasks:
-            console.print("[yellow]No platforms enabled. Starting web UI only...[/yellow]")
-            from local_pigeon.ui.app import create_ui
-            ui = create_ui(agent, settings)
-            ui.launch(
-                server_name=settings.ui.host,
-                server_port=settings.ui.port,
-                share=settings.ui.share,
-            )
+            from local_pigeon.ui.app import launch_ui
+            launch_ui(settings=settings)
         else:
-            console.print("\n[green]Local Pigeon is running! Press Ctrl+C to stop.[/green]\n")
+            console.print()
+            console.print(Panel("[bold green]🐦 Local Pigeon is running![/]\n\nPress [bold]Ctrl+C[/] to stop.", border_style="green", box=ROUNDED))
             await asyncio.gather(*tasks)
-    
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
@@ -131,174 +275,134 @@ def run(
 def setup():
     """Interactive setup wizard for Local Pigeon."""
     print_banner()
-    
     console.print(Panel(
-        "Welcome to Local Pigeon Setup!\n\n"
-        "This wizard will help you configure your AI agent.",
-        title="Setup Wizard",
-        border_style="cyan",
+        "[bold bright_white]Welcome to Local Pigeon Setup![/]\n\n"
+        "This wizard will configure your local AI assistant.\n"
+        "Type [cyan]?[/] at any prompt for detailed help.",
+        title="[bold yellow]🐦 Setup Wizard[/]", border_style="bright_cyan", box=ROUNDED, padding=(1, 2),
     ))
     
     data_dir = get_data_dir()
     env_path = data_dir / ".env"
+    console.print(f"\n  [dim]Config:[/] [cyan]{env_path}[/]\n")
     
-    console.print(f"\n[dim]Configuration will be saved to: {env_path}[/dim]\n")
-    
-    # Load existing settings if any
-    existing_env = {}
+    existing = {}
     if env_path.exists():
         with open(env_path) as f:
             for line in f:
                 line = line.strip()
                 if line and not line.startswith("#") and "=" in line:
-                    key, value = line.split("=", 1)
-                    existing_env[key] = value
+                    k, v = line.split("=", 1)
+                    existing[k] = v
+    new_env = dict(existing)
     
-    new_env = dict(existing_env)
+    print_step_header(1, 6, "Ollama Configuration", "Local AI model settings")
+    new_env["OLLAMA_HOST"] = prompt_with_help("Ollama host", default=existing.get("OLLAMA_HOST", "http://localhost:11434"))
+    new_env["OLLAMA_MODEL"] = prompt_with_help("Default model", default=existing.get("OLLAMA_MODEL", "llama3.2"))
+    console.print("[green]  ✓ Ollama settings saved[/]")
     
-    # Ollama settings
-    console.print("[bold cyan]1. Ollama Settings[/bold cyan]")
-    ollama_host = Prompt.ask(
-        "Ollama host",
-        default=existing_env.get("OLLAMA_HOST", "http://localhost:11434")
-    )
-    new_env["OLLAMA_HOST"] = ollama_host
+    print_step_header(2, 6, "Discord Bot", "Chat with your AI on Discord")
+    if ask_with_help("Enable Discord bot?", default=False, help_key="discord"):
+        new_env["DISCORD_BOT_TOKEN"] = prompt_with_help("Discord bot token", default=existing.get("DISCORD_BOT_TOKEN", ""), password=True)
+        new_env["DISCORD_ENABLED"] = "true"
+        console.print("[green]  ✓ Discord configured[/]")
+    else:
+        new_env["DISCORD_ENABLED"] = "false"
+        console.print("[dim]  ○ Discord skipped[/]")
     
-    ollama_model = Prompt.ask(
-        "Default model",
-        default=existing_env.get("OLLAMA_MODEL", "llama3.2")
-    )
-    new_env["OLLAMA_MODEL"] = ollama_model
+    print_step_header(3, 6, "Telegram Bot", "Chat with your AI on Telegram")
+    if ask_with_help("Enable Telegram bot?", default=False, help_key="telegram"):
+        new_env["TELEGRAM_BOT_TOKEN"] = prompt_with_help("Telegram bot token", default=existing.get("TELEGRAM_BOT_TOKEN", ""), password=True)
+        new_env["TELEGRAM_ENABLED"] = "true"
+        console.print("[green]  ✓ Telegram configured[/]")
+    else:
+        new_env["TELEGRAM_ENABLED"] = "false"
+        console.print("[dim]  ○ Telegram skipped[/]")
     
-    # Discord setup
-    console.print("\n[bold cyan]2. Discord Bot (Optional)[/bold cyan]")
-    if Confirm.ask("Enable Discord bot?", default=False):
-        discord_token = Prompt.ask(
-            "Discord bot token",
-            default=existing_env.get("DISCORD_BOT_TOKEN", ""),
-            password=True
-        )
-        new_env["DISCORD_BOT_TOKEN"] = discord_token
+    print_step_header(4, 6, "Google Workspace", "Gmail, Calendar, and Drive")
+    if ask_with_help("Enable Google Workspace?", default=False, help_key="google"):
+        new_env["GOOGLE_CREDENTIALS_PATH"] = prompt_with_help("Path to credentials.json", default=existing.get("GOOGLE_CREDENTIALS_PATH", "credentials.json"))
+        new_env["GOOGLE_ENABLED"] = "true"
+        console.print("[green]  ✓ Google Workspace configured[/]")
+    else:
+        new_env["GOOGLE_ENABLED"] = "false"
+        console.print("[dim]  ○ Google Workspace skipped[/]")
     
-    # Telegram setup
-    console.print("\n[bold cyan]3. Telegram Bot (Optional)[/bold cyan]")
-    if Confirm.ask("Enable Telegram bot?", default=False):
-        telegram_token = Prompt.ask(
-            "Telegram bot token",
-            default=existing_env.get("TELEGRAM_BOT_TOKEN", ""),
-            password=True
-        )
-        new_env["TELEGRAM_BOT_TOKEN"] = telegram_token
+    print_step_header(5, 6, "Payment Settings", "Spending limits and approvals")
+    new_env["PAYMENT_APPROVAL_THRESHOLD"] = prompt_with_help("Approval threshold (USD)", default=existing.get("PAYMENT_APPROVAL_THRESHOLD", "25.00"))
+    new_env["PAYMENT_DAILY_LIMIT"] = prompt_with_help("Daily spending limit (USD)", default=existing.get("PAYMENT_DAILY_LIMIT", "100.00"))
+    console.print("[green]  ✓ Payment settings saved[/]")
     
-    # Google Workspace setup
-    console.print("\n[bold cyan]4. Google Workspace (Optional)[/bold cyan]")
-    if Confirm.ask("Enable Google Workspace integration?", default=False):
-        console.print("[dim]You'll need to set up OAuth credentials in Google Cloud Console.[/dim]")
-        console.print("[dim]See: https://console.cloud.google.com/apis/credentials[/dim]")
-        google_creds = Prompt.ask(
-            "Path to credentials.json",
-            default=existing_env.get("GOOGLE_CREDENTIALS_PATH", "credentials.json")
-        )
-        new_env["GOOGLE_CREDENTIALS_PATH"] = google_creds
-    
-    # Payment settings
-    console.print("\n[bold cyan]5. Payment Settings[/bold cyan]")
-    approval_threshold = Prompt.ask(
-        "Payment approval threshold (USD)",
-        default=existing_env.get("PAYMENT_APPROVAL_THRESHOLD", "25.00")
-    )
-    new_env["PAYMENT_APPROVAL_THRESHOLD"] = approval_threshold
-    
-    daily_limit = Prompt.ask(
-        "Daily spending limit (USD)",
-        default=existing_env.get("PAYMENT_DAILY_LIMIT", "100.00")
-    )
-    new_env["PAYMENT_DAILY_LIMIT"] = daily_limit
-    
-    # Save configuration
-    console.print("\n[bold cyan]Saving configuration...[/bold cyan]")
+    console.print()
+    console.print(Rule("[bold bright_white]Saving Configuration[/]", style="bright_cyan"))
+    console.print()
     
     with open(env_path, "w") as f:
-        f.write("# Local Pigeon Configuration\n")
-        f.write("# Generated by setup wizard\n\n")
-        for key, value in new_env.items():
-            f.write(f"{key}={value}\n")
+        f.write(f"# Local Pigeon Configuration\n# Generated: {time.strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+        for k, v in new_env.items():
+            f.write(f"{k}={v}\n")
+    console.print(f"[green]✓[/] Saved to [cyan]{env_path}[/]")
+    console.print()
+    console.print(create_status_table(new_env))
     
-    console.print(f"[green]✓[/green] Configuration saved to {env_path}")
+    print_step_header(6, 6, "Ollama Installation", "Setting up the AI engine")
+    ollama_path = find_ollama()
+    if not ollama_path:
+        ollama_path = install_ollama()
+    else:
+        console.print(f"[green]✓[/] Ollama found: [dim]{ollama_path}[/]")
     
-    # Offer to pull model
-    console.print("\n[bold cyan]6. Model Setup[/bold cyan]")
-    if Confirm.ask(f"Pull model '{ollama_model}' now?", default=True):
-        console.print(f"[dim]Pulling {ollama_model}...[/dim]")
-        import subprocess
-        subprocess.run(["ollama", "pull", ollama_model])
+    if ollama_path:
+        ensure_ollama_running(ollama_path)
+        model = new_env.get("OLLAMA_MODEL", "llama3.2")
+        if ask_with_help(f"Download model '{model}'?", default=True):
+            console.print()
+            with Progress(SpinnerColumn(style="cyan"), TextColumn("[progress.description]{task.description}"), console=console) as progress:
+                task = progress.add_task(f"[cyan]Pulling {model}...[/]", total=None)
+                result = subprocess.run([ollama_path, "pull", model], capture_output=True, text=True)
+                if result.returncode == 0:
+                    progress.update(task, description=f"[green]✓ {model} ready![/]")
+                else:
+                    console.print(f"[yellow]⚠[/] Run: [cyan]ollama pull {model}[/]")
+    else:
+        console.print("[yellow]⚠[/] Install Ollama from https://ollama.ai")
     
-    console.print("\n[green]Setup complete![/green]")
-    console.print("\nRun [cyan]local-pigeon run[/cyan] to start the agent.\n")
+    console.print()
+    console.print(Panel(
+        "[bold green]🎉 Setup Complete![/]\n\n"
+        "Start your AI assistant:\n  [cyan]python -m local_pigeon run[/]\n\n"
+        "Or chat in terminal:\n  [cyan]python -m local_pigeon chat[/]",
+        title="[bold bright_white]Ready to Go![/]", border_style="green", box=ROUNDED, padding=(1, 2),
+    ))
+    console.print()
 
 
 @app.command()
 def status():
-    """Show the current status of Local Pigeon."""
-    print_banner()
-    
+    """Show the current status."""
+    print_banner(small=True)
     settings = get_settings()
-    
-    table = Table(title="Local Pigeon Status")
-    table.add_column("Component", style="cyan")
-    table.add_column("Status", style="green")
+    table = Table(title="[bold bright_white]🐦 Local Pigeon Status[/]", box=ROUNDED, border_style="bright_cyan", padding=(0, 2))
+    table.add_column("Component", style="bold white")
+    table.add_column("Status", justify="center")
     table.add_column("Details", style="dim")
     
-    # Check Ollama
-    try:
-        import ollama
-        client = ollama.Client(host=settings.ollama.host)
-        models = client.list()
-        model_names = [m["name"] for m in models.get("models", [])]
-        table.add_row(
-            "Ollama",
-            "✓ Connected",
-            f"{len(model_names)} models available"
-        )
-    except Exception as e:
-        table.add_row("Ollama", "✗ Disconnected", str(e)[:50])
-    
-    # Check platforms
-    if settings.discord.bot_token:
-        table.add_row("Discord", "✓ Configured", "Token set")
+    ollama = find_ollama()
+    if ollama:
+        try:
+            import ollama as ol
+            client = ol.Client(host=settings.ollama.host)
+            models = client.list()
+            table.add_row("🧠 Ollama", "[green]✓ Connected[/]", f"{len(models.get('models', []))} model(s)")
+        except:
+            table.add_row("🧠 Ollama", "[yellow]○ Not Running[/]", "ollama serve")
     else:
-        table.add_row("Discord", "○ Not configured", "")
+        table.add_row("🧠 Ollama", "[red]✗ Not Installed[/]", "ollama.ai")
     
-    if settings.telegram.bot_token:
-        table.add_row("Telegram", "✓ Configured", "Token set")
-    else:
-        table.add_row("Telegram", "○ Not configured", "")
-    
-    # Check Google
-    creds_path = Path(settings.google.credentials_path)
-    if creds_path.exists():
-        table.add_row("Google Workspace", "✓ Credentials found", str(creds_path))
-    else:
-        table.add_row("Google Workspace", "○ Not configured", "")
-    
-    # Check payments
-    if settings.payments.stripe.api_key:
-        table.add_row("Stripe", "✓ Configured", "API key set")
-    else:
-        table.add_row("Stripe", "○ Not configured", "")
-    
-    if settings.payments.crypto.cdp_api_key_name:
-        table.add_row("Crypto Wallet", "✓ Configured", "CDP key set")
-    else:
-        table.add_row("Crypto Wallet", "○ Not configured", "")
-    
-    # Settings summary
-    table.add_row(
-        "Approval Threshold",
-        f"${settings.payments.approval.threshold:.2f}",
-        f"Daily limit: ${settings.payments.approval.daily_limit:.2f}"
-    )
-    
+    table.add_row("💬 Discord", "[green]✓ Configured[/]" if settings.discord.bot_token else "[dim]─ Not configured[/]", "")
+    table.add_row("📱 Telegram", "[green]✓ Configured[/]" if settings.telegram.bot_token else "[dim]─ Not configured[/]", "")
+    creds = Path(settings.google.credentials_path)
+    table.add_row("📧 Google", "[green]✓ Ready[/]" if creds.exists() else "[dim]─ Not configured[/]", "")
     console.print(table)
     console.print()
 
@@ -306,89 +410,57 @@ def status():
 @app.command()
 def models():
     """List available Ollama models."""
+    print_banner(small=True)
     settings = get_settings()
-    
     try:
         import ollama
         client = ollama.Client(host=settings.ollama.host)
         result = client.list()
-        
-        table = Table(title="Available Ollama Models")
+        table = Table(title="[bold bright_white]📦 Available Models[/]", box=ROUNDED, border_style="bright_cyan")
         table.add_column("Name", style="cyan")
-        table.add_column("Size", style="green")
+        table.add_column("Size", style="green", justify="right")
         table.add_column("Modified", style="dim")
-        
-        for model in result.get("models", []):
-            size_gb = model.get("size", 0) / (1024**3)
-            table.add_row(
-                model["name"],
-                f"{size_gb:.1f} GB",
-                model.get("modified_at", "")[:10]
-            )
-        
+        for m in result.get("models", []):
+            table.add_row(m["name"], f"{m.get('size', 0) / (1024**3):.1f} GB", m.get("modified_at", "")[:10])
         console.print(table)
-        
-        console.print(f"\n[dim]Current default: {settings.ollama.model}[/dim]")
-        console.print("[dim]Pull new models with: ollama pull <model>[/dim]\n")
-        
+        console.print(f"\n[dim]Default: [cyan]{settings.ollama.model}[/][/]")
     except Exception as e:
-        console.print(f"[red]Error connecting to Ollama: {e}[/red]")
-        raise typer.Exit(1)
+        console.print(f"[red]Error: {e}[/]")
 
 
 @app.command()
-def chat(
-    model: Optional[str] = typer.Option(None, "--model", "-m", help="Model to use"),
-):
-    """Start an interactive chat session in the terminal."""
-    print_banner()
-    
+def chat(model: Optional[str] = None):
+    """Start an interactive chat session."""
+    print_banner(small=True)
     settings = get_settings()
-    if model:
-        settings.ollama.model = model
-    
-    console.print(f"[dim]Using model: {settings.ollama.model}[/dim]")
-    console.print("[dim]Type 'exit' or 'quit' to end the session.[/dim]\n")
+    if model: settings.ollama.model = model
+    console.print(Panel(f"[dim]Model: [cyan]{settings.ollama.model}[/] • Type [yellow]exit[/] to quit[/]", border_style="dim", box=ROUNDED))
+    console.print()
     
     from local_pigeon.core.agent import LocalPigeonAgent
-    
     agent = LocalPigeonAgent(settings)
-    
-    async def chat_loop():
+    async def loop():
         while True:
             try:
-                user_input = Prompt.ask("[bold cyan]You[/bold cyan]")
-                
-                if user_input.lower() in ("exit", "quit", "q"):
-                    console.print("[dim]Goodbye![/dim]")
-                    break
-                
-                if not user_input.strip():
-                    continue
-                
-                console.print("[bold green]Pigeon[/bold green]: ", end="")
-                
-                response = await agent.chat(user_input, user_id="cli")
-                console.print(response)
+                user = Prompt.ask("[bold cyan]You[/]")
+                if user.lower() in ("exit", "quit", "q"): break
+                if not user.strip(): continue
+                console.print("[bold green]🐦 Pigeon[/]: ", end="")
+                console.print(await agent.chat(user, user_id="cli"))
                 console.print()
-                
-            except KeyboardInterrupt:
-                console.print("\n[dim]Goodbye![/dim]")
-                break
-    
-    asyncio.run(chat_loop())
+            except KeyboardInterrupt: break
+        console.print("\n[dim]Goodbye! 👋[/]")
+    asyncio.run(loop())
 
 
 @app.command()
 def version():
     """Show version information."""
-    console.print(f"Local Pigeon v{__version__}")
+    console.print(Panel(f"[bold bright_white]Local Pigeon[/] [cyan]v{__version__}[/]\n\n[dim]A fully local AI agent powered by Ollama[/]", border_style="bright_cyan", box=ROUNDED))
 
 
 def main():
-    """Entry point for the CLI."""
     app()
-
 
 if __name__ == "__main__":
     main()
