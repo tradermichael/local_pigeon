@@ -36,19 +36,18 @@ irm https://raw.githubusercontent.com/tradermichael/local_pigeon/main/install.ps
 curl -sSL https://raw.githubusercontent.com/tradermichael/local_pigeon/main/install.sh | bash
 ```
 
-### Option 2: From Source (Recommended)
+### Option 2: pip Install
+
+```bash
+pip install local-pigeon
+```
+
+### Option 3: From Source
 
 ```bash
 git clone https://github.com/tradermichael/local_pigeon.git
 cd local_pigeon
 pip install -e .
-```
-
-### Option 3: pip Install (coming soon)
-
-```bash
-# Not yet published to PyPI
-pip install local-pigeon
 ```
 
 ### Option 4: Docker
