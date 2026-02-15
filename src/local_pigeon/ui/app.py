@@ -1048,6 +1048,35 @@ def create_app(
             except Exception as e:
                 return f"❌ Error: {str(e)}"
         
+        def handle_delete_data(include_config: bool) -> str:
+            """Delete local data with user confirmation."""
+            nonlocal agent
+            try:
+                results = delete_local_data(keep_config=not include_config)
+                
+                # Build status message
+                deleted = [k for k, v in results.items() if v is True]
+                not_found = [k for k, v in results.items() if v is False]
+                errors = [f"{k}: {v}" for k, v in results.items() if isinstance(v, str)]
+                
+                msg_parts = []
+                if deleted:
+                    msg_parts.append(f"✅ **Deleted:** {', '.join(deleted)}")
+                if not_found:
+                    msg_parts.append(f"ℹ️ **Not found:** {', '.join(not_found)}")
+                if errors:
+                    msg_parts.append(f"❌ **Errors:** {', '.join(errors)}")
+                
+                if not msg_parts:
+                    return "ℹ️ No data to delete"
+                
+                # Reset agent to clear any cached data
+                agent = None
+                
+                return "\\n".join(msg_parts) + "\\n\\n⚠️ Please restart the app to fully reset."
+            except Exception as e:
+                return f"❌ Error deleting data: {str(e)}"
+        
         # Memory handlers
         async def load_memories() -> list:
             """Load all memories for display."""
@@ -1626,6 +1655,12 @@ def create_app(
         
         open_folder_btn.click(
             fn=open_data_folder,
+            outputs=[folder_status],
+        )
+        
+        delete_data_btn.click(
+            fn=handle_delete_data,
+            inputs=[delete_config_too],
             outputs=[folder_status],
         )
         

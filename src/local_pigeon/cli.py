@@ -27,10 +27,13 @@ from rich.text import Text
 from rich.padding import Padding
 
 from local_pigeon import __version__
-from local_pigeon.config import get_settings, get_data_dir
+from local_pigeon.config import get_settings, get_data_dir, ensure_data_dir
 
 app = typer.Typer(name="local-pigeon", help="Local AI Agent", add_completion=False)
 console = Console()
+
+# Ensure data directory exists on import
+ensure_data_dir()
 
 LOGO = """
 [bold bright_cyan]╭─────────────────────────────────────────────────────────────────╮[/]
