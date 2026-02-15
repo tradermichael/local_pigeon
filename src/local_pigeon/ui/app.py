@@ -63,18 +63,9 @@ def create_app(
         # Header with logo and version
         gr.Markdown(
             f"""
-            <div style="text-align: center; padding: 10px 0;">
-            <pre style="font-family: monospace; font-size: 10px; line-height: 1.2; color: #06b6d4;">
-███████╗ ██╗  ██████╗ ███████╗ ██████╗ ███╗  ██╗
-██╔════╝ ██║ ██╔════╝ ██╔════╝██╔═══██╗████╗ ██║
-█████╗  ██║ ██║ ███╗█████╗  ██║   ██║██╔██╗██║
-██╔══╝  ██║ ██║  ██║██╔══╝  ██║   ██║██║╚████║
-██║    ██║ ╚██████╔╝███████╗╚██████╔╝██║ ╚███║
-╚═╝    ╚═╝  ╚═════╝ ╚══════╝ ╚═════╝ ╚═╝  ╚══╝
-            </pre>
-            <h1 style="margin: 0;">🕊️ Local Pigeon</h1>
-            <p style="color: #888; margin: 5px 0 0 0;">v{__version__} • Your local AI assistant powered by Ollama • 100% on-device</p>
-            </div>
+# 🕊️ Local Pigeon
+
+**v{__version__}** • Your local AI assistant powered by Ollama • 100% on-device
             """
         )
         
@@ -94,21 +85,22 @@ def create_app(
                         lines=2,
                         scale=4,
                     )
-                    voice_input = gr.Audio(
-                        sources=["microphone"],
-                        type="filepath",
-                        label="🎤",
-                        scale=1,
-                    )
                     send_btn = gr.Button("Send", variant="primary", scale=1)
                 
-                with gr.Row():
-                    voice_status = gr.Textbox(
-                        label="Voice Transcription",
-                        placeholder="Your speech will appear here...",
-                        interactive=False,
-                        visible=False,
-                    )
+                with gr.Accordion("🎤 Voice Input", open=False):
+                    with gr.Row():
+                        voice_input = gr.Audio(
+                            sources=["microphone"],
+                            type="filepath",
+                            label="Click to record",
+                            scale=2,
+                        )
+                        voice_status = gr.Textbox(
+                            label="Transcription",
+                            placeholder="Your speech will appear here...",
+                            interactive=False,
+                            scale=3,
+                        )
                 
                 with gr.Row():
                     clear_btn = gr.Button("🗑️ Clear History")
