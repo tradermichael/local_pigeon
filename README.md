@@ -1,6 +1,6 @@
-# 🐦 Local Pigeon
+# �️ Local Pigeon
 
-**A fully local AI agent powered by Ollama.** Your AI assistant that runs entirely on your device, connecting to Discord, Telegram, or a web interface while keeping all LLM inference local and private.
+**A fully local AI agent powered by Ollama (or llama-cpp-python).** Your AI assistant that runs entirely on your device, connecting to Discord, Telegram, or a web interface while keeping all LLM inference local and private.
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -19,8 +19,8 @@
 ## 📋 Prerequisites
 
 - **Python 3.10+** ([Download](https://www.python.org/downloads/))
-- **Ollama** ([Download](https://ollama.ai))
-- A supported LLM model (e.g., `llama3.2`, `mistral`, `qwen2.5`)
+- **Ollama** ([Download](https://ollama.ai)) - *or Local Pigeon can auto-download models via llama-cpp-python*
+- A supported LLM model (e.g., `gemma3`, `llama3.2`, `qwen2.5`)
 
 ## 🚀 Quick Start
 
@@ -28,26 +28,27 @@
 
 **Windows (PowerShell):**
 ```powershell
-irm https://raw.githubusercontent.com/yourusername/local_pigeon/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/tradermichael/local_pigeon/main/install.ps1 | iex
 ```
 
 **Mac/Linux:**
 ```bash
-curl -sSL https://raw.githubusercontent.com/yourusername/local_pigeon/main/install.sh | bash
+curl -sSL https://raw.githubusercontent.com/tradermichael/local_pigeon/main/install.sh | bash
 ```
 
-### Option 2: pip Install
+### Option 2: From Source (Recommended)
 
 ```bash
-pip install local-pigeon
-```
-
-### Option 3: From Source
-
-```bash
-git clone https://github.com/yourusername/local_pigeon.git
+git clone https://github.com/tradermichael/local_pigeon.git
 cd local_pigeon
 pip install -e .
+```
+
+### Option 3: pip Install (coming soon)
+
+```bash
+# Not yet published to PyPI
+pip install local-pigeon
 ```
 
 ### Option 4: Docker
@@ -58,17 +59,19 @@ docker-compose up -d
 
 ## ⚙️ Configuration
 
-### 1. Set up Ollama
+### 1. Set up Ollama (or skip for auto-download)
 
-Make sure Ollama is running and has a model:
+If you have Ollama installed, make sure it's running:
 
 ```bash
 # Start Ollama (if not running)
 ollama serve
 
 # Pull a model
-ollama pull llama3.2
+ollama pull gemma3:latest
 ```
+
+**No Ollama?** Local Pigeon will automatically fall back to llama-cpp-python and download a model from HuggingFace on first run.
 
 ### 2. Configure Local Pigeon
 
@@ -83,7 +86,7 @@ Or manually create a `.env` file:
 ```env
 # Ollama
 OLLAMA_HOST=http://localhost:11434
-OLLAMA_MODEL=llama3.2
+OLLAMA_MODEL=gemma3:latest
 
 # Discord (optional)
 DISCORD_BOT_TOKEN=your_discord_bot_token
@@ -225,7 +228,7 @@ local_pigeon/
 ### Setup Development Environment
 
 ```bash
-git clone https://github.com/yourusername/local_pigeon.git
+git clone https://github.com/tradermichael/local_pigeon.git
 cd local_pigeon
 pip install -e ".[dev]"
 ```

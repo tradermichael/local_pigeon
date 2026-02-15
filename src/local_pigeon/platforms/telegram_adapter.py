@@ -96,7 +96,7 @@ class TelegramAdapter(BasePlatformAdapter):
                 await message.answer(
                     "Usage: /model &lt;model_name&gt;\n\n"
                     "Examples:\n"
-                    "  /model llama3.2\n"
+                    "  /model gemma3:latest\n"
                     "  /model mistral\n"
                     "  /model qwen2.5"
                 )

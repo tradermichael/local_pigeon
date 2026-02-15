@@ -335,6 +335,356 @@ def create_app(
                     interactive=False,
                 )
             
+            # Documentation Tab
+            with gr.Tab("📚 Docs"):
+                with gr.Tabs():
+                    with gr.Tab("Getting Started"):
+                        gr.Markdown(
+                            """
+                            ## Getting Started with Local Pigeon
+                            
+                            Local Pigeon is your personal AI assistant that runs entirely on your device.
+                            All your data stays local - nothing is sent to external servers.
+                            
+                            ### Quick Start
+                            
+                            1. **Chat**: Just type in the Chat tab and press Enter
+                            2. **Tools**: The AI can search the web, manage emails, and more
+                            3. **Memory**: Local Pigeon remembers things about you over time
+                            4. **Integrations**: Connect Discord, Telegram, or Google services
+                            
+                            ### LLM Backends
+                            
+                            Local Pigeon supports two backends:
+                            
+                            | Backend | Description |
+                            |---------|-------------|
+                            | **Ollama** | Recommended. Install from [ollama.ai](https://ollama.ai) |
+                            | **llama-cpp-python** | Fallback. Auto-downloads models from HuggingFace |
+                            
+                            The system automatically detects which backend is available.
+                            
+                            ### Data Storage
+                            
+                            Your data is stored locally:
+                            - **Windows:** `%LOCALAPPDATA%\\LocalPigeon`
+                            - **macOS:** `~/Library/Application Support/LocalPigeon`
+                            - **Linux:** `~/.local/share/local_pigeon`
+                            """
+                        )
+                    
+                    with gr.Tab("Adding Tools"):
+                        gr.Markdown(
+                            '''
+                            ## Creating Custom Tools
+                            
+                            Tools give Local Pigeon new capabilities. Here's how to create your own:
+                            
+                            ### 1. Create a Tool File
+                            
+                            Create a new file in `src/local_pigeon/tools/` (e.g., `my_tool.py`):
+                            
+                            ```python
+                            """My Custom Tool"""
+                            
+                            from dataclasses import dataclass, field
+                            from typing import Any
+                            
+                            from local_pigeon.tools.registry import Tool
+                            
+                            
+                            @dataclass
+                            class MyTool(Tool):
+                                """A custom tool that does something useful."""
+                                
+                                settings: Any = field(default=None)
+                                
+                                def __post_init__(self):
+                                    # Initialize your tool here
+                                    pass
+                                
+                                @property
+                                def name(self) -> str:
+                                    return "my_custom_tool"
+                                
+                                @property
+                                def description(self) -> str:
+                                    return "Description of what this tool does"
+                                
+                                @property
+                                def parameters(self) -> dict:
+                                    return {
+                                        "type": "object",
+                                        "properties": {
+                                            "input_text": {
+                                                "type": "string",
+                                                "description": "The input to process"
+                                            }
+                                        },
+                                        "required": ["input_text"]
+                                    }
+                                
+                                async def execute(self, **kwargs) -> str:
+                                    """Execute the tool with given parameters."""
+                                    input_text = kwargs.get("input_text", "")
+                                    
+                                    # Your tool logic here
+                                    result = f"Processed: {input_text}"
+                                    
+                                    return result
+                            ```
+                            
+                            ### 2. Register the Tool
+                            
+                            Add your tool to the agent's `_register_default_tools()` method in 
+                            `src/local_pigeon/core/agent.py`:
+                            
+                            ```python
+                            from local_pigeon.tools.my_tool import MyTool
+                            
+                            # In _register_default_tools():
+                            self.tools.register(MyTool())
+                            ```
+                            
+                            ### 3. Tool Best Practices
+                            
+                            - **Clear descriptions**: The AI uses these to decide when to use your tool
+                            - **Specific parameters**: Define exactly what inputs your tool needs
+                            - **Error handling**: Return helpful error messages
+                            - **Async execution**: Use `async def execute()` for I/O operations
+                            
+                            ### Example Tools
+                            
+                            Look at existing tools for reference:
+                            - `tools/web/search.py` - Web search
+                            - `tools/web/fetch.py` - Fetch web pages
+                            - `tools/google/gmail.py` - Email integration
+                            '''
+                        )
+                    
+                    with gr.Tab("Adding Integrations"):
+                        gr.Markdown(
+                            '''
+                            ## Creating Platform Integrations
+                            
+                            Integrations let users interact with Local Pigeon through different platforms.
+                            
+                            ### Platform Adapter Pattern
+                            
+                            Create a new file in `src/local_pigeon/platforms/` (e.g., `slack_adapter.py`):
+                            
+                            ```python
+                            """Slack Integration"""
+                            
+                            import asyncio
+                            from local_pigeon.platforms.base import PlatformAdapter
+                            from local_pigeon.core.agent import LocalPigeonAgent
+                            
+                            
+                            class SlackAdapter(PlatformAdapter):
+                                """Adapter for Slack integration."""
+                                
+                                def __init__(self, agent: LocalPigeonAgent, settings):
+                                    self.agent = agent
+                                    self.settings = settings
+                                    self.client = None  # Your Slack client
+                                
+                                async def start(self):
+                                    """Start the Slack bot."""
+                                    # Initialize Slack client
+                                    # Set up event handlers
+                                    # Run the event loop
+                                    pass
+                                
+                                async def stop(self):
+                                    """Stop the Slack bot."""
+                                    pass
+                                
+                                async def handle_message(self, message: str, user_id: str):
+                                    """Handle incoming message."""
+                                    response = await self.agent.chat(
+                                        user_message=message,
+                                        user_id=f"slack_{user_id}",
+                                        platform="slack",
+                                    )
+                                    return response
+                            ```
+                            
+                            ### Adding Settings
+                            
+                            Add settings to `src/local_pigeon/config.py`:
+                            
+                            ```python
+                            class SlackSettings(BaseSettings):
+                                """Slack bot settings."""
+                                
+                                enabled: bool = Field(default=False)
+                                bot_token: str | None = Field(default=None)
+                                app_token: str | None = Field(default=None)
+                                
+                                model_config = SettingsConfigDict(env_prefix="SLACK_")
+                            ```
+                            
+                            ### Running the Integration
+                            
+                            Add to the CLI run command in `src/local_pigeon/cli.py`:
+                            
+                            ```python
+                            if settings.slack.enabled and settings.slack.bot_token:
+                                from local_pigeon.platforms.slack_adapter import SlackAdapter
+                                tasks.append(SlackAdapter(agent, settings.slack).start())
+                            ```
+                            '''
+                        )
+                    
+                    with gr.Tab("Configuration"):
+                        gr.Markdown(
+                            """
+                            ## Configuration Options
+                            
+                            Local Pigeon can be configured via environment variables or `config.yaml`.
+                            
+                            ### Environment Variables
+                            
+                            Create a `.env` file in your data directory:
+                            
+                            ```bash
+                            # LLM Settings
+                            OLLAMA_HOST=http://localhost:11434
+                            OLLAMA_MODEL=gemma3:latest
+                            OLLAMA_TEMPERATURE=0.7
+                            
+                            # Discord Bot
+                            DISCORD_ENABLED=true
+                            DISCORD_BOT_TOKEN=your_token_here
+                            
+                            # Telegram Bot
+                            TELEGRAM_ENABLED=true
+                            TELEGRAM_BOT_TOKEN=your_token_here
+                            
+                            # Google Workspace
+                            GOOGLE_CREDENTIALS_PATH=/path/to/credentials.json
+                            
+                            # Payments
+                            STRIPE_ENABLED=true
+                            STRIPE_API_KEY=sk_...
+                            PAYMENT_APPROVAL_THRESHOLD=25.00
+                            ```
+                            
+                            ### config.yaml
+                            
+                            For more complex settings, use `config.yaml`:
+                            
+                            ```yaml
+                            model:
+                              name: gemma3:latest
+                              temperature: 0.7
+                              context_length: 8192
+                            
+                            agent:
+                              system_prompt: |
+                                You are a helpful assistant...
+                              max_history_messages: 20
+                            
+                            payments:
+                              approval:
+                                threshold: 25.00
+                                daily_limit: 100.00
+                            ```
+                            
+                            ### Priority Order
+                            
+                            Settings are loaded in this order (later overrides earlier):
+                            1. Defaults in code
+                            2. `config.yaml`
+                            3. `.env` file
+                            4. System environment variables
+                            """
+                        )
+                    
+                    with gr.Tab("API Reference"):
+                        gr.Markdown(
+                            """
+                            ## Key Classes and Functions
+                            
+                            ### LocalPigeonAgent
+                            
+                            The main agent class that orchestrates everything:
+                            
+                            ```python
+                            from local_pigeon.core.agent import LocalPigeonAgent
+                            from local_pigeon.config import Settings
+                            
+                            settings = Settings.load()
+                            agent = LocalPigeonAgent(settings)
+                            await agent.initialize()
+                            
+                            # Chat with the agent
+                            response = await agent.chat(
+                                user_message="Hello!",
+                                user_id="user123",
+                            )
+                            ```
+                            
+                            ### Tool Registry
+                            
+                            Register and manage tools:
+                            
+                            ```python
+                            from local_pigeon.tools.registry import ToolRegistry, Tool
+                            
+                            registry = ToolRegistry()
+                            registry.register(MyTool())
+                            
+                            # Get all tools
+                            tools = registry.get_all()
+                            
+                            # Execute a tool
+                            result = await registry.execute("tool_name", param1="value")
+                            ```
+                            
+                            ### Memory Manager
+                            
+                            Store and retrieve user memories:
+                            
+                            ```python
+                            from local_pigeon.storage.memory import AsyncMemoryManager, MemoryType
+                            
+                            memory = AsyncMemoryManager(db_path="local_pigeon.db")
+                            
+                            # Store a memory
+                            await memory.set_memory(
+                                user_id="user123",
+                                key="favorite_color",
+                                value="blue",
+                                memory_type=MemoryType.PREFERENCE,
+                            )
+                            
+                            # Retrieve memories
+                            memories = await memory.get_all_memories("user123")
+                            ```
+                            
+                            ### Conversation Manager
+                            
+                            Manage conversation history:
+                            
+                            ```python
+                            from local_pigeon.core.conversation import AsyncConversationManager
+                            
+                            conversations = AsyncConversationManager(db_path="local_pigeon.db")
+                            
+                            # Get or create a conversation
+                            conv_id = await conversations.get_or_create_conversation(
+                                user_id="user123",
+                                platform="web",
+                            )
+                            
+                            # Add a message
+                            await conversations.add_message(conv_id, "user", "Hello!")
+                            ```
+                            """
+                        )
+            
             # About Tab
             with gr.Tab("ℹ️ About"):
                 data_dir = get_data_dir()
@@ -440,10 +790,12 @@ def create_app(
                 )
         
         async def change_model(model: str) -> None:
-            """Change the active model."""
+            """Change the active model and persist to settings."""
             try:
                 current_agent = await get_agent()
-                current_agent.llm.model = model
+                current_agent.set_model(model)
+                # Persist to .env so it's remembered on restart
+                _save_env_var("OLLAMA_MODEL", model)
             except Exception:
                 pass
         

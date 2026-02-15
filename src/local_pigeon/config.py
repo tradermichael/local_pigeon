@@ -12,20 +12,65 @@ from typing import Any
 import yaml
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+import platform
 
 
 def get_data_dir() -> Path:
-    """Get the data directory for Local Pigeon."""
-    data_dir = os.environ.get("DATA_DIR")
+    """
+    Get the data directory for Local Pigeon.
+    
+    Uses proper system-level locations:
+    - Windows: %LOCALAPPDATA%\\LocalPigeon
+    - macOS: ~/Library/Application Support/LocalPigeon
+    - Linux: ~/.local/share/local_pigeon (XDG compliant)
+    
+    Can be overridden via DATA_DIR or LOCAL_PIGEON_DATA environment variables.
+    """
+    # Check for explicit override
+    data_dir = os.environ.get("LOCAL_PIGEON_DATA") or os.environ.get("DATA_DIR")
     if data_dir:
-        return Path(data_dir)
+        path = Path(data_dir)
+        path.mkdir(parents=True, exist_ok=True)
+        return path
     
-    # Default to ~/.local_pigeon or current directory
-    home_dir = Path.home() / ".local_pigeon"
-    if home_dir.exists():
-        return home_dir
+    # Use system-appropriate location
+    system = platform.system()
     
-    return Path.cwd()
+    if system == "Windows":
+        # Windows: %LOCALAPPDATA%\LocalPigeon
+        local_app_data = os.environ.get("LOCALAPPDATA")
+        if local_app_data:
+            path = Path(local_app_data) / "LocalPigeon"
+        else:
+            path = Path.home() / "AppData" / "Local" / "LocalPigeon"
+    
+    elif system == "Darwin":
+        # macOS: ~/Library/Application Support/LocalPigeon
+        path = Path.home() / "Library" / "Application Support" / "LocalPigeon"
+    
+    else:
+        # Linux/Unix: ~/.local/share/local_pigeon (XDG Base Directory)
+        xdg_data = os.environ.get("XDG_DATA_HOME")
+        if xdg_data:
+            path = Path(xdg_data) / "local_pigeon"
+        else:
+            path = Path.home() / ".local" / "share" / "local_pigeon"
+    
+    # Create directory if it doesn't exist
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def get_models_dir() -> Path:
+    """
+    Get the directory for storing downloaded models.
+    
+    Returns:
+        Path to models directory
+    """
+    models_dir = get_data_dir() / "models"
+    models_dir.mkdir(parents=True, exist_ok=True)
+    return models_dir
 
 
 def load_yaml_config() -> dict[str, Any]:
@@ -48,7 +93,7 @@ class OllamaSettings(BaseSettings):
     """Ollama LLM settings."""
     
     host: str = Field(default="http://localhost:11434", description="Ollama API host")
-    model: str = Field(default="llama3.2", description="Default model to use")
+    model: str = Field(default="gemma3:latest", description="Default model to use")
     context_length: int = Field(default=8192, description="Context window size")
     temperature: float = Field(default=0.7, ge=0.0, le=2.0, description="Generation temperature")
     max_tokens: int = Field(default=2048, description="Max tokens to generate")

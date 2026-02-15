@@ -6,7 +6,7 @@
 # =============================================================================
 model:
   # Default Ollama model to use
-  name: llama3.2
+  name: gemma3:latest
   # Alternative models to offer in UI
   alternatives:
     - mistral

@@ -6,11 +6,13 @@ The main agent orchestration layer that:
 - Handles tool registration and execution
 - Implements the agentic loop (tool calling)
 - Manages payment approvals
+- Supports multiple backends (Ollama, llama-cpp-python)
 """
 
 import asyncio
 import uuid
 from dataclasses import dataclass
+from enum import Enum
 from typing import Any, Callable, Awaitable
 
 from local_pigeon.config import Settings, get_settings
@@ -18,6 +20,84 @@ from local_pigeon.core.llm_client import OllamaClient, Message, ToolDefinition, 
 from local_pigeon.core.conversation import AsyncConversationManager
 from local_pigeon.storage.memory import AsyncMemoryManager, MemoryType
 from local_pigeon.tools.registry import ToolRegistry, Tool
+
+
+class LLMBackend(Enum):
+    """Available LLM backends."""
+    OLLAMA = "ollama"
+    LLAMA_CPP = "llama_cpp"
+    AUTO = "auto"  # Try Ollama first, fallback to llama-cpp
+
+
+def _check_ollama_available(host: str = "http://localhost:11434") -> bool:
+    """Check if Ollama is running and accessible."""
+    try:
+        import httpx
+        with httpx.Client(timeout=2.0) as client:
+            resp = client.get(f"{host}/api/tags")
+            return resp.status_code == 200
+    except Exception:
+        return False
+
+
+def _create_llm_client(
+    settings: Settings,
+    backend: LLMBackend = LLMBackend.AUTO,
+) -> Any:
+    """
+    Create the appropriate LLM client based on backend selection.
+    
+    Args:
+        settings: Application settings
+        backend: Which backend to use (auto will try Ollama first)
+    
+    Returns:
+        LLM client instance (OllamaClient or LlamaCppClient)
+    """
+    if backend == LLMBackend.OLLAMA:
+        return OllamaClient(
+            host=settings.ollama.host,
+            model=settings.ollama.model,
+            temperature=settings.ollama.temperature,
+            context_length=settings.ollama.context_length,
+        )
+    
+    if backend == LLMBackend.LLAMA_CPP:
+        from local_pigeon.core.llama_cpp_client import LlamaCppClient
+        return LlamaCppClient(
+            model_name=settings.ollama.model.replace(":latest", "").replace(":", "-"),
+            temperature=settings.ollama.temperature,
+            context_length=settings.ollama.context_length,
+        )
+    
+    # AUTO: Try Ollama first, fallback to llama-cpp-python
+    if _check_ollama_available(settings.ollama.host):
+        return OllamaClient(
+            host=settings.ollama.host,
+            model=settings.ollama.model,
+            temperature=settings.ollama.temperature,
+            context_length=settings.ollama.context_length,
+        )
+    
+    # Fallback to llama-cpp-python
+    try:
+        from local_pigeon.core.llama_cpp_client import LlamaCppClient, is_available
+        if is_available():
+            return LlamaCppClient(
+                model_name=settings.ollama.model.replace(":latest", "").replace(":", "-"),
+                temperature=settings.ollama.temperature,
+                context_length=settings.ollama.context_length,
+            )
+    except ImportError:
+        pass
+    
+    # Final fallback to Ollama (will error if not available)
+    return OllamaClient(
+        host=settings.ollama.host,
+        model=settings.ollama.model,
+        temperature=settings.ollama.temperature,
+        context_length=settings.ollama.context_length,
+    )
 
 
 @dataclass
@@ -54,18 +134,19 @@ class LocalPigeonAgent:
     - Tool registration and execution
     - Agentic loop for multi-step tasks
     - Payment approval workflow
+    - Multiple LLM backends (Ollama, llama-cpp-python)
     """
     
-    def __init__(self, settings: Settings | None = None):
+    def __init__(
+        self,
+        settings: Settings | None = None,
+        backend: LLMBackend = LLMBackend.AUTO,
+    ):
         self.settings = settings or get_settings()
+        self.backend = backend
         
-        # Initialize LLM client
-        self.llm = OllamaClient(
-            host=self.settings.ollama.host,
-            model=self.settings.ollama.model,
-            temperature=self.settings.ollama.temperature,
-            context_length=self.settings.ollama.context_length,
-        )
+        # Initialize LLM client (with automatic backend selection)
+        self.llm = _create_llm_client(self.settings, backend)
         
         # Initialize conversation manager
         db_path = self.settings.storage.database
