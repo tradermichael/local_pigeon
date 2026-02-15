@@ -39,18 +39,13 @@ Returns search results with titles, URLs, and snippets."""
         "required": ["query"]
     })
     requires_approval: bool = False
+    settings: Any = field(default=None, repr=False)
     
-    def __init__(self, settings=None):
-        super().__init__(
-            name=self.name,
-            description=self.description,
-            parameters=self.parameters,
-            requires_approval=self.requires_approval,
-        )
-        self.settings = settings
-        self._provider = settings.provider if settings else "duckduckgo"
-        self._max_results = settings.max_results if settings else 5
-        self._safe_search = settings.safe_search if settings else "moderate"
+    def __post_init__(self):
+        # Settings are passed in, store provider config
+        self._provider = self.settings.provider if self.settings else "duckduckgo"
+        self._max_results = self.settings.max_results if self.settings else 5
+        self._safe_search = self.settings.safe_search if self.settings else "moderate"
     
     async def execute(self, user_id: str, **kwargs) -> str:
         """Execute a web search."""

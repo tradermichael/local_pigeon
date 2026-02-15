@@ -51,6 +51,7 @@ class OllamaSettings(BaseSettings):
     model: str = Field(default="llama3.2", description="Default model to use")
     context_length: int = Field(default=8192, description="Context window size")
     temperature: float = Field(default=0.7, ge=0.0, le=2.0, description="Generation temperature")
+    max_tokens: int = Field(default=2048, description="Max tokens to generate")
     
     model_config = SettingsConfigDict(env_prefix="OLLAMA_")
 
@@ -113,6 +114,7 @@ class PaymentApprovalSettings(BaseSettings):
     threshold: float = Field(default=25.0, ge=0, description="Approval threshold (USD)")
     daily_limit: float = Field(default=100.0, ge=0, description="Daily spending limit (USD)")
     timeout: int = Field(default=300, ge=30, description="Approval timeout (seconds)")
+    require_approval: bool = Field(default=True, description="Require approval for all payments")
 
 
 class StripeSettings(BaseSettings):
@@ -241,20 +243,29 @@ class Settings(BaseSettings):
     @classmethod
     def load(cls) -> "Settings":
         """Load settings from environment and config files."""
-        # Load YAML config first
+        # Load .env from data directory first
+        data_dir = get_data_dir()
+        env_path = data_dir / ".env"
+        if env_path.exists():
+            from dotenv import load_dotenv
+            load_dotenv(env_path, override=True)
+        
+        # Load YAML config
         yaml_config = load_yaml_config()
         
         # Create settings (env vars override YAML)
         settings = cls()
         
         # Apply YAML config for nested settings that aren't easily set via env
+        # BUT only if the env var wasn't explicitly set
         if "model" in yaml_config:
             model_config = yaml_config["model"]
-            if "name" in model_config:
+            # Only use YAML value if env var not set (pydantic default still in place)
+            if "name" in model_config and not os.environ.get("OLLAMA_MODEL"):
                 settings.ollama.model = model_config["name"]
-            if "context_length" in model_config:
+            if "context_length" in model_config and not os.environ.get("OLLAMA_CONTEXT_LENGTH"):
                 settings.ollama.context_length = model_config["context_length"]
-            if "temperature" in model_config:
+            if "temperature" in model_config and not os.environ.get("OLLAMA_TEMPERATURE"):
                 settings.ollama.temperature = model_config["temperature"]
         
         if "agent" in yaml_config:

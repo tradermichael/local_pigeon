@@ -116,17 +116,11 @@ Actions:
         "required": ["action"]
     })
     requires_approval: bool = False
+    settings: Any = field(default=None, repr=False)
     
-    def __init__(self, settings=None):
-        super().__init__(
-            name=self.name,
-            description=self.description,
-            parameters=self.parameters,
-            requires_approval=self.requires_approval,
-        )
-        self.settings = settings
-        self._credentials_path = settings.credentials_path if settings else "credentials.json"
-        self._calendar_id = settings.calendar_id if settings else "primary"
+    def __post_init__(self):
+        self._credentials_path = self.settings.credentials_path if self.settings else "credentials.json"
+        self._calendar_id = self.settings.calendar_id if self.settings else "primary"
         self._service = None
     
     def _get_service(self):

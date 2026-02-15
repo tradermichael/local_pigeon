@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import webbrowser
 from pathlib import Path
 from typing import Optional
 
@@ -48,14 +49,14 @@ LOGO = """
 [bold bright_cyan]│[/]   [dim cyan]██║     ██║╚██████╔╝███████╗╚██████╔╝██║ ╚████║[/]           [bold bright_cyan]│[/]
 [bold bright_cyan]│[/]   [dim cyan]╚═╝     ╚═╝ ╚═════╝ ╚══════╝ ╚═════╝ ╚═╝  ╚═══╝[/]           [bold bright_cyan]│[/]
 [bold bright_cyan]│[/]                                                                 [bold bright_cyan]│[/]
-[bold bright_cyan]│[/]              [bold yellow]🐦[/] [italic bright_white]Your Local AI Assistant[/] [bold yellow]🐦[/]               [bold bright_cyan]│[/]
+[bold bright_cyan]│[/]              [bold yellow]�️[/] [italic bright_white]Your Local AI Assistant[/] [bold yellow]🕊️[/]               [bold bright_cyan]│[/]
 [bold bright_cyan]│[/]                                                                 [bold bright_cyan]│[/]
 [bold bright_cyan]╰─────────────────────────────────────────────────────────────────╯[/]
 """
 
 LOGO_SMALL = """
 [bold bright_cyan]╭──────────────────────────────────────────────╮[/]
-[bold bright_cyan]│[/]  [bold yellow]🐦[/] [bold bright_white]LOCAL PIGEON[/]  [dim]Your Local AI Assistant[/]  [bold bright_cyan]│[/]
+[bold bright_cyan]│[/]  [bold yellow]�️[/] [bold bright_white]LOCAL PIGEON[/]  [dim]Your Local AI Assistant[/]  [bold bright_cyan]│[/]
 [bold bright_cyan]╰──────────────────────────────────────────────╯[/]
 """
 
@@ -166,6 +167,7 @@ def ensure_ollama_running(ollama_path):
     import urllib.request
     try:
         urllib.request.urlopen("http://localhost:11434/api/tags", timeout=2)
+        console.print("[dim]Ollama server already running[/]")
         return True
     except: pass
     console.print("[dim]Starting Ollama server...[/dim]")
@@ -177,7 +179,8 @@ def ensure_ollama_running(ollama_path):
         else:
             subprocess.Popen([ollama_path, "serve"],
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
-        for _ in range(10):
+        for i in range(10):
+            console.print(f"[dim]Waiting for Ollama to start... ({i+1}/10)[/]")
             time.sleep(1)
             try:
                 urllib.request.urlopen("http://localhost:11434/api/tags", timeout=2)
@@ -229,18 +232,37 @@ def create_status_table(config):
 def run(host: str = None, port: int = None, no_ui: bool = False):
     """Start the Local Pigeon agent."""
     print_banner(small=True)
+    console.print("[dim]Initializing Local Pigeon...[/]")
     settings = get_settings()
     if host: settings.ui.host = host
     if port: settings.ui.port = port
     
+    console.print("[dim]Looking for Ollama...[/]")
     ollama_path = find_ollama()
     if not ollama_path:
         console.print("[red]✗ Ollama not found.[/] Run [cyan]python -m local_pigeon setup[/] first.")
         raise typer.Exit(1)
+    console.print(f"[dim]Found Ollama at: {ollama_path}[/]")
+    
+    console.print("[dim]Checking Ollama server status...[/]")
     if not ensure_ollama_running(ollama_path):
         console.print("[red]✗ Could not start Ollama.[/]")
         raise typer.Exit(1)
     console.print(f"[green]✓[/] Ollama connected [dim]({settings.ollama.model})[/]")
+    
+    import signal
+    shutdown_event = asyncio.Event()
+    
+    def handle_shutdown(signum, frame):
+        console.print("\n[yellow]Shutting down Local Pigeon...[/yellow]")
+        shutdown_event.set()
+        # Force exit after brief delay if graceful shutdown fails
+        import threading
+        def force_exit():
+            time.sleep(2)
+            console.print("[dim]Force exiting...[/]")
+            os._exit(0)
+        threading.Thread(target=force_exit, daemon=True).start()
     
     from local_pigeon.core.agent import LocalPigeonAgent
     async def main():
@@ -255,20 +277,40 @@ def run(host: str = None, port: int = None, no_ui: bool = False):
             from local_pigeon.platforms.telegram_adapter import TelegramAdapter
             tasks.append(TelegramAdapter(agent, settings.telegram).start())
         if not no_ui:
-            console.print(f"[green]✓[/] Web UI at http://{settings.ui.host}:{settings.ui.port}")
+            ui_url = f"http://{settings.ui.host}:{settings.ui.port}"
+            console.print(f"[green]✓[/] Web UI starting at {ui_url}")
             from local_pigeon.ui.app import launch_ui
+            
+            async def launch_ui_and_open_browser():
+                # Small delay to let server start
+                await asyncio.sleep(1.5)
+                console.print(f"[dim]Opening browser to {ui_url}...[/]")
+                webbrowser.open(ui_url)
+            
             tasks.append(asyncio.to_thread(launch_ui, settings=settings, server_name=settings.ui.host, server_port=settings.ui.port))
+            tasks.append(launch_ui_and_open_browser())
         if not tasks:
             from local_pigeon.ui.app import launch_ui
+            ui_url = f"http://{settings.ui.host}:{settings.ui.port}"
+            console.print(f"[dim]Opening browser to {ui_url}...[/]")
+            webbrowser.open(ui_url)
             launch_ui(settings=settings)
         else:
             console.print()
-            console.print(Panel("[bold green]🐦 Local Pigeon is running![/]\n\nPress [bold]Ctrl+C[/] to stop.", border_style="green", box=ROUNDED))
+            console.print(Panel("[bold green]🕊️ Local Pigeon is running![/]\n\nPress [bold]Ctrl+C[/] to stop.", border_style="green", box=ROUNDED))
             await asyncio.gather(*tasks)
+    
+    # Register signal handlers
+    signal.signal(signal.SIGINT, handle_shutdown)
+    signal.signal(signal.SIGTERM, handle_shutdown)
+    
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        console.print("\n[yellow]Shutting down...[/yellow]")
+        pass  # Signal handler already took care of shutdown message
+    finally:
+        console.print("[green]Goodbye! 🕊️[/]")
+        sys.exit(0)
 
 
 @app.command()
@@ -279,7 +321,7 @@ def setup():
         "[bold bright_white]Welcome to Local Pigeon Setup![/]\n\n"
         "This wizard will configure your local AI assistant.\n"
         "Type [cyan]?[/] at any prompt for detailed help.",
-        title="[bold yellow]🐦 Setup Wizard[/]", border_style="bright_cyan", box=ROUNDED, padding=(1, 2),
+        title="[bold yellow]�️ Setup Wizard[/]", border_style="bright_cyan", box=ROUNDED, padding=(1, 2),
     ))
     
     data_dir = get_data_dir()
@@ -382,7 +424,7 @@ def status():
     """Show the current status."""
     print_banner(small=True)
     settings = get_settings()
-    table = Table(title="[bold bright_white]🐦 Local Pigeon Status[/]", box=ROUNDED, border_style="bright_cyan", padding=(0, 2))
+    table = Table(title="[bold bright_white]�️ Local Pigeon Status[/]", box=ROUNDED, border_style="bright_cyan", padding=(0, 2))
     table.add_column("Component", style="bold white")
     table.add_column("Status", justify="center")
     table.add_column("Details", style="dim")
@@ -445,7 +487,7 @@ def chat(model: Optional[str] = None):
                 user = Prompt.ask("[bold cyan]You[/]")
                 if user.lower() in ("exit", "quit", "q"): break
                 if not user.strip(): continue
-                console.print("[bold green]🐦 Pigeon[/]: ", end="")
+                console.print("[bold green]�️ Pigeon[/]: ", end="")
                 console.print(await agent.chat(user, user_id="cli"))
                 console.print()
             except KeyboardInterrupt: break

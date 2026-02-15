@@ -35,18 +35,12 @@ Returns the extracted text content from the page."""
         "required": ["url"]
     })
     requires_approval: bool = False
+    settings: Any = field(default=None, repr=False)
     
-    def __init__(self, settings=None):
-        super().__init__(
-            name=self.name,
-            description=self.description,
-            parameters=self.parameters,
-            requires_approval=self.requires_approval,
-        )
-        self.settings = settings
-        self._max_content_length = settings.max_content_length if settings else 10000
-        self._timeout = settings.timeout if settings else 30
-        self._user_agent = settings.user_agent if settings else "LocalPigeon/0.1"
+    def __post_init__(self):
+        self._max_content_length = self.settings.max_content_length if self.settings else 10000
+        self._timeout = self.settings.timeout if self.settings else 30
+        self._user_agent = self.settings.user_agent if self.settings else "LocalPigeon/0.1"
     
     async def execute(self, user_id: str, **kwargs) -> str:
         """Fetch and extract content from a URL."""

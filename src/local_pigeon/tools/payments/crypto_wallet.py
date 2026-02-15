@@ -63,19 +63,13 @@ Actions:
         "required": ["action"]
     })
     requires_approval: bool = True
+    crypto_settings: Any = field(default=None, repr=False)
+    approval_settings: Any = field(default=None, repr=False)
     
-    def __init__(self, crypto_settings=None, approval_settings=None):
-        super().__init__(
-            name=self.name,
-            description=self.description,
-            parameters=self.parameters,
-            requires_approval=self.requires_approval,
-        )
-        self.crypto_settings = crypto_settings
-        self.approval_settings = approval_settings
-        self._cdp_key = crypto_settings.cdp_api_key_name if crypto_settings else ""
-        self._network = crypto_settings.network if crypto_settings else "base"
-        self._threshold = approval_settings.threshold if approval_settings else 25.0
+    def __post_init__(self):
+        self._cdp_key = self.crypto_settings.cdp_api_key_name if self.crypto_settings else ""
+        self._network = self.crypto_settings.network if self.crypto_settings else "base"
+        self._threshold = self.approval_settings.threshold if self.approval_settings else 25.0
         
         # Simulated wallet state
         self._usdc_balance = 100.0

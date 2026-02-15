@@ -66,19 +66,13 @@ Actions:
         "required": ["action"]
     })
     requires_approval: bool = True
+    stripe_settings: Any = field(default=None, repr=False)
+    approval_settings: Any = field(default=None, repr=False)
     
-    def __init__(self, stripe_settings=None, approval_settings=None):
-        super().__init__(
-            name=self.name,
-            description=self.description,
-            parameters=self.parameters,
-            requires_approval=self.requires_approval,
-        )
-        self.stripe_settings = stripe_settings
-        self.approval_settings = approval_settings
-        self._api_key = stripe_settings.api_key if stripe_settings else ""
-        self._threshold = approval_settings.threshold if approval_settings else 25.0
-        self._daily_limit = approval_settings.daily_limit if approval_settings else 100.0
+    def __post_init__(self):
+        self._api_key = self.stripe_settings.api_key if self.stripe_settings else ""
+        self._threshold = self.approval_settings.threshold if self.approval_settings else 25.0
+        self._daily_limit = self.approval_settings.daily_limit if self.approval_settings else 100.0
         
         # In-memory tracking (would be replaced with real Stripe API)
         self._transactions: list[dict] = []

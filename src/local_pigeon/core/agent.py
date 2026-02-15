@@ -16,6 +16,7 @@ from typing import Any, Callable, Awaitable
 from local_pigeon.config import Settings, get_settings
 from local_pigeon.core.llm_client import OllamaClient, Message, ToolDefinition, ToolCall
 from local_pigeon.core.conversation import AsyncConversationManager
+from local_pigeon.storage.memory import AsyncMemoryManager, MemoryType
 from local_pigeon.tools.registry import ToolRegistry, Tool
 
 
@@ -73,6 +74,9 @@ class LocalPigeonAgent:
             max_history=self.settings.agent.max_history_messages,
         )
         
+        # Initialize memory manager
+        self.memory = AsyncMemoryManager(db_path=db_path)
+        
         # Initialize tool registry
         self.tools = ToolRegistry()
         self._register_default_tools()
@@ -82,44 +86,61 @@ class LocalPigeonAgent:
         
         # Approval callbacks (set by platforms)
         self._approval_handlers: dict[str, Callable[[PendingApproval], Awaitable[bool]]] = {}
+        
+        # Initialization flag
+        self._initialized = False
+    
+    async def initialize(self) -> None:
+        """
+        Async initialization for the agent.
+        
+        Called once before first use to ensure database and other
+        async resources are properly set up.
+        """
+        if self._initialized:
+            return
+        
+        # Ensure database tables exist (sync manager handles this in __init__)
+        # Any additional async setup can go here
+        self._initialized = True
     
     def _register_default_tools(self) -> None:
         """Register the default set of tools."""
         # Web search tools
         if self.settings.web.search.enabled:
             from local_pigeon.tools.web.search import WebSearchTool
-            self.tools.register(WebSearchTool(self.settings.web.search))
+            self.tools.register(WebSearchTool(settings=self.settings.web.search))
         
         if self.settings.web.fetch.enabled:
             from local_pigeon.tools.web.fetch import WebFetchTool
-            self.tools.register(WebFetchTool(self.settings.web.fetch))
+            self.tools.register(WebFetchTool(settings=self.settings.web.fetch))
         
         # Google Workspace tools
         if self.settings.google.gmail_enabled:
             from local_pigeon.tools.google.gmail import GmailTool
-            self.tools.register(GmailTool(self.settings.google))
+            self.tools.register(GmailTool(settings=self.settings.google))
         
         if self.settings.google.calendar_enabled:
             from local_pigeon.tools.google.calendar import CalendarTool
-            self.tools.register(CalendarTool(self.settings.google))
+            self.tools.register(CalendarTool(settings=self.settings.google))
         
         if self.settings.google.drive_enabled:
             from local_pigeon.tools.google.drive import DriveTool
-            self.tools.register(DriveTool(self.settings.google))
+            self.tools.register(DriveTool(settings=self.settings.google))
         
         # Payment tools
         if self.settings.payments.stripe.enabled:
             from local_pigeon.tools.payments.stripe_card import StripeCardTool
             self.tools.register(StripeCardTool(
-                self.settings.payments.stripe,
-                self.settings.payments.approval,
+                stripe_settings=self.settings.payments.stripe,
+                approval_settings=self.settings.payments.approval,
             ))
         
         if self.settings.payments.crypto.enabled:
             from local_pigeon.tools.payments.crypto_wallet import CryptoWalletTool
             self.tools.register(CryptoWalletTool(
-                self.settings.payments.crypto,
-                self.settings.payments.approval,
+                crypto_settings=self.settings.payments.crypto,
+                approval_settings=self.settings.payments.approval,
             ))
     
     def register_approval_handler(
@@ -136,7 +157,7 @@ class LocalPigeonAgent:
         self._approval_handlers[platform] = handler
     
     def get_system_prompt(self) -> str:
-        """Get the system prompt with tool information."""
+        """Get the base system prompt with tool information."""
         base_prompt = self.settings.agent.system_prompt
         
         if self.settings.agent.tools_enabled and self.tools.list_tools():
@@ -145,6 +166,17 @@ class LocalPigeonAgent:
                 for tool in self.tools.list_tools()
             )
             base_prompt += f"\n\nAvailable tools:\n{tool_list}"
+        
+        return base_prompt
+    
+    async def get_personalized_system_prompt(self, user_id: str) -> str:
+        """Get the system prompt personalized with user memories."""
+        base_prompt = self.get_system_prompt()
+        
+        # Add user memories
+        memory_context = await self.memory.format_memories_for_prompt(user_id)
+        if memory_context:
+            base_prompt += memory_context
         
         return base_prompt
     
@@ -179,9 +211,12 @@ class LocalPigeonAgent:
         # Get conversation history
         history = await self.conversations.get_messages(conversation_id)
         
+        # Get personalized system prompt with user memories
+        system_prompt = await self.get_personalized_system_prompt(user_id)
+        
         # Build messages for the LLM
         messages = [
-            Message(role="system", content=self.get_system_prompt()),
+            Message(role="system", content=system_prompt),
             *history,
             Message(role="user", content=user_message),
         ]
