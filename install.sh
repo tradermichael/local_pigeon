@@ -191,6 +191,11 @@ main() {
     echo -e "${GREEN}✓${NC} Dependencies installed"
     
     echo ""
+    echo -e "${BLUE}Step 6b: Installing Playwright browser...${NC}"
+    playwright install chromium
+    echo -e "${GREEN}✓${NC} Playwright Chromium installed"
+    
+    echo ""
     echo -e "${BLUE}Step 7: Setting up configuration...${NC}"
     if [ ! -f "$INSTALL_DIR/.env" ]; then
         cp "$INSTALL_DIR/repo/.env.example" "$INSTALL_DIR/.env"

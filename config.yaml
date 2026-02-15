@@ -63,7 +63,7 @@ platforms:
 # =============================================================================
 google:
   gmail:
-    enabled: false
+    enabled: true
     # Default labels to search
     default_labels:
       - INBOX

@@ -38,10 +38,12 @@ cryptography>=42.0
 python-dotenv>=1.0
 pyyaml>=6.0
 
+# Voice & Browser
+SpeechRecognition>=3.10
+playwright>=1.40
+
 # =============================================================================
 # OPTIONAL DEPENDENCIES
 # Install with: pip install local-pigeon[all]
 # =============================================================================
-# playwright>=1.40        # Browser automation: pip install local-pigeon[browser]
-# SpeechRecognition>=3.10 # Voice input: pip install local-pigeon[voice]
 # pydub>=0.25             # Voice input audio processing

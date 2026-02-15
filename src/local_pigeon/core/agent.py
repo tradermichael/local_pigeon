@@ -19,6 +19,7 @@ from local_pigeon.config import Settings, get_settings
 from local_pigeon.core.llm_client import OllamaClient, Message, ToolDefinition, ToolCall
 from local_pigeon.core.conversation import AsyncConversationManager
 from local_pigeon.storage.memory import AsyncMemoryManager, MemoryType
+from local_pigeon.storage.failure_log import AsyncFailureLog
 from local_pigeon.tools.registry import ToolRegistry, Tool
 
 
@@ -158,6 +159,9 @@ class LocalPigeonAgent:
         # Initialize memory manager
         self.memory = AsyncMemoryManager(db_path=db_path)
         
+        # Initialize failure log for Ralph Loop pattern
+        self.failure_log = AsyncFailureLog(db_path=db_path)
+        
         # Initialize tool registry
         self.tools = ToolRegistry()
         self._register_default_tools()
@@ -229,6 +233,34 @@ class LocalPigeonAgent:
                 crypto_settings=self.settings.payments.crypto,
                 approval_settings=self.settings.payments.approval,
             ))
+        
+        # Self-healing tools (Ralph Loop pattern) - always enabled
+        from local_pigeon.tools.self_healing import (
+            ViewFailureLogTool,
+            MarkFailureResolvedTool,
+            AnalyzeFailurePatternsTool,
+        )
+        self.tools.register(ViewFailureLogTool(failure_log=self.failure_log))
+        self.tools.register(MarkFailureResolvedTool(failure_log=self.failure_log))
+        self.tools.register(AnalyzeFailurePatternsTool(failure_log=self.failure_log))
+    
+    def reload_tools(self) -> list[str]:
+        """
+        Reload all tools based on current settings.
+        
+        Call this after changing settings to register/unregister tools
+        without restarting the entire application.
+        
+        Returns:
+            List of registered tool names
+        """
+        # Clear existing tools
+        self.tools = ToolRegistry()
+        
+        # Re-register all tools
+        self._register_default_tools()
+        
+        return self.tools.list_tools()
     
     def register_discord_tools(self, bot: Any) -> None:
         """
@@ -370,6 +402,7 @@ Timezone: {datetime.now().astimezone().tzinfo}
             user_id=user_id,
             platform=platform,
             stream_callback=stream_callback,
+            max_iterations=self.settings.agent.max_tool_iterations,
         )
         
         # Save assistant response
@@ -443,6 +476,41 @@ Timezone: {datetime.now().astimezone().tzinfo}
                 # Notify user that tool is being executed
                 if stream_callback:
                     stream_callback(f"\n🔧 Using {tool_call.name}...\n")
+                
+                # Checkpoint mode: require approval for every tool execution
+                if self.settings.agent.checkpoint_mode:
+                    approval_id = str(uuid.uuid4())
+                    pending = PendingApproval(
+                        id=approval_id,
+                        user_id=user_id,
+                        tool_name=tool_call.name,
+                        arguments=tool_call.arguments,
+                        amount=None,
+                        description=f"[Checkpoint Mode] Execute {tool_call.name} with args: {tool_call.arguments}",
+                    )
+                    self._pending_approvals[approval_id] = pending
+                    
+                    if stream_callback:
+                        stream_callback(f"\n⏸️ Checkpoint: Awaiting approval for {tool_call.name}...\n")
+                    
+                    approved = await self._request_approval(pending, platform)
+                    del self._pending_approvals[approval_id]
+                    
+                    if not approved:
+                        result = ToolResult(
+                            tool_call_id=tool_call.id,
+                            name=tool_call.name,
+                            result="Tool execution skipped by user (checkpoint mode).",
+                            success=False,
+                        )
+                        tool_results_this_session.append(result)
+                        messages.append(Message(
+                            role="tool",
+                            content=result.result,
+                            tool_call_id=tool_call.id,
+                            name=tool_call.name,
+                        ))
+                        continue
                 
                 result = await self._execute_tool(
                     tool_call=tool_call,
@@ -550,6 +618,15 @@ Timezone: {datetime.now().astimezone().tzinfo}
             )
             
         except Exception as e:
+            # Log failure for Ralph Loop pattern
+            await self.failure_log.log_failure(
+                tool_name=tool_call.name,
+                error=e,
+                arguments=tool_call.arguments,
+                user_id=user_id,
+                platform=platform,
+            )
+            
             return ToolResult(
                 tool_call_id=tool_call.id,
                 name=tool_call.name,

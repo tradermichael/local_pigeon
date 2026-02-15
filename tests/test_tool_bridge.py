@@ -96,6 +96,51 @@ def test_no_tool_calls():
     assert len(calls) == 0
 
 
+def test_parse_malformed_closing_tag_first():
+    """Test parsing when closing tag appears before JSON (malformed)."""
+    text = """</tool_call>
+{"name": "web_search", "arguments": {"query": "weather today", "max_results": 5}}
+"""
+    
+    calls = parse_tool_calls_from_text(text)
+    
+    assert len(calls) == 1
+    assert calls[0]["name"] == "web_search"
+    assert calls[0]["arguments"]["query"] == "weather today"
+
+
+def test_parse_raw_json_tool_call():
+    """Test parsing raw JSON tool call without any tags."""
+    text = """{"name": "web_search", "arguments": {"query": "python docs"}}"""
+    
+    calls = parse_tool_calls_from_text(text)
+    
+    assert len(calls) == 1
+    assert calls[0]["name"] == "web_search"
+
+
+def test_strip_orphan_closing_tag():
+    """Test stripping orphan closing tags."""
+    text = """</tool_call>
+{"name": "web_search", "arguments": {"query": "test"}}
+"""
+    
+    cleaned = strip_tool_calls_from_text(text)
+    
+    assert "</tool_call>" not in cleaned
+    assert '"name"' not in cleaned or "web_search" not in cleaned
+
+
+def test_strip_raw_json_tool_call():
+    """Test stripping raw JSON tool calls."""
+    text = """{"name": "web_search", "arguments": {"query": "test"}}"""
+    
+    cleaned = strip_tool_calls_from_text(text)
+    
+    # Should strip the raw JSON too
+    assert cleaned == "" or '"name"' not in cleaned
+
+
 if __name__ == "__main__":
     test_parse_tool_calls()
     test_parse_multiple_tool_calls()

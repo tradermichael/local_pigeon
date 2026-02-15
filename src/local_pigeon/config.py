@@ -268,6 +268,16 @@ For payments above the approval threshold, always request user confirmation.""",
     )
     max_history_messages: int = Field(default=20, ge=1, description="Max history messages")
     tools_enabled: bool = Field(default=True, description="Enable tool usage")
+    checkpoint_mode: bool = Field(
+        default=False,
+        description="Ralph Loop: Require approval for each tool execution (human-in-the-loop)"
+    )
+    max_tool_iterations: int = Field(
+        default=10,
+        ge=1,
+        le=50,
+        description="Maximum tool execution iterations per request"
+    )
 
 
 class Settings(BaseSettings):
@@ -349,6 +359,27 @@ class Settings(BaseSettings):
                     if hasattr(settings.telegram, key):
                         setattr(settings.telegram, key, value)
         
+        # Handle Google section (env vars take priority over YAML)
+        if "google" in yaml_config:
+            google_config = yaml_config["google"]
+            # Gmail settings
+            if "gmail" in google_config:
+                gmail_config = google_config["gmail"]
+                if "enabled" in gmail_config and not os.environ.get("GOOGLE_GMAIL_ENABLED"):
+                    settings.google.gmail_enabled = gmail_config["enabled"]
+            # Calendar settings
+            if "calendar" in google_config:
+                cal_config = google_config["calendar"]
+                if "enabled" in cal_config and not os.environ.get("GOOGLE_CALENDAR_ENABLED"):
+                    settings.google.calendar_enabled = cal_config["enabled"]
+                if "calendar_id" in cal_config and not os.environ.get("GOOGLE_CALENDAR_ID"):
+                    settings.google.calendar_id = cal_config["calendar_id"]
+            # Drive settings
+            if "drive" in google_config:
+                drive_config = google_config["drive"]
+                if "enabled" in drive_config and not os.environ.get("GOOGLE_DRIVE_ENABLED"):
+                    settings.google.drive_enabled = drive_config["enabled"]
+        
         return settings
 
 
@@ -356,10 +387,36 @@ class Settings(BaseSettings):
 _settings: Settings | None = None
 
 
+def ensure_data_dir() -> Path:
+    """
+    Ensure the data directory exists and is properly initialized.
+    
+    Creates the directory structure and initializes .env file if missing.
+    Call this early in application startup to ensure proper initialization.
+    
+    Returns:
+        Path to the data directory
+    """
+    data_dir = get_data_dir()  # This creates the directory
+    
+    # Ensure .env file exists
+    env_path = data_dir / ".env"
+    if not env_path.exists():
+        from datetime import datetime
+        with open(env_path, "w") as f:
+            f.write(f"# Local Pigeon Configuration\n")
+            f.write(f"# Initialized: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write(f"# Data directory: {data_dir}\n\n")
+    
+    return data_dir
+
+
 def get_settings() -> Settings:
     """Get the global settings instance."""
     global _settings
     if _settings is None:
+        # Ensure data directory exists before loading settings
+        ensure_data_dir()
         _settings = Settings.load()
     return _settings
 
@@ -367,5 +424,48 @@ def get_settings() -> Settings:
 def reload_settings() -> Settings:
     """Reload settings from disk."""
     global _settings
+    ensure_data_dir()
     _settings = Settings.load()
     return _settings
+
+
+def delete_local_data(keep_config: bool = True) -> dict[str, bool]:
+    """
+    Delete local data from the data directory.
+    
+    Args:
+        keep_config: If True, preserve .env and config.yaml files
+    
+    Returns:
+        dict with deleted items and status
+    """
+    import shutil
+    
+    data_dir = get_data_dir()
+    results = {}
+    
+    # Files/directories to potentially delete
+    items_to_delete = [
+        "local_pigeon.db",  # Database (conversations, memories)
+        "google_token.json",  # Google OAuth token
+        "models",  # Downloaded models directory
+    ]
+    
+    if not keep_config:
+        items_to_delete.extend([".env", "config.yaml", "google_credentials.json"])
+    
+    for item in items_to_delete:
+        item_path = data_dir / item
+        try:
+            if item_path.exists():
+                if item_path.is_dir():
+                    shutil.rmtree(item_path)
+                else:
+                    item_path.unlink()
+                results[item] = True
+            else:
+                results[item] = False  # Didn't exist
+        except Exception as e:
+            results[item] = f"Error: {str(e)}"
+    
+    return results

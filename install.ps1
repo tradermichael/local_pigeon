@@ -226,6 +226,11 @@ function Install-LocalPigeon {
     Write-Color "✓ Dependencies installed" "Green"
     
     Write-Host ""
+    Write-Color "Step 6b: Installing Playwright browser..." "Cyan"
+    & "$VenvDir\Scripts\playwright.exe" install chromium
+    Write-Color "✓ Playwright Chromium installed" "Green"
+    
+    Write-Host ""
     Write-Color "Step 7: Setting up configuration..." "Cyan"
     $envFile = "$InstallDir\.env"
     if (-not (Test-Path $envFile)) {

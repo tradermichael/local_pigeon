@@ -20,7 +20,8 @@ from pathlib import Path
 from typing import Any, Generator
 import gradio as gr
 
-from local_pigeon.config import Settings, get_data_dir
+from local_pigeon import __version__
+from local_pigeon.config import Settings, get_data_dir, ensure_data_dir, delete_local_data
 
 
 def create_app(
@@ -59,12 +60,21 @@ def create_app(
         # State
         conversation_state = gr.State([])
         
-        # Header
+        # Header with logo and version
         gr.Markdown(
-            """
-            # 🕊️ Local Pigeon
-            
-            Your local AI assistant powered by Ollama. All processing happens on your device.
+            f"""
+            <div style="text-align: center; padding: 10px 0;">
+            <pre style="font-family: monospace; font-size: 10px; line-height: 1.2; color: #06b6d4;">
+███████╗ ██╗  ██████╗ ███████╗ ██████╗ ███╗  ██╗
+██╔════╝ ██║ ██╔════╝ ██╔════╝██╔═══██╗████╗ ██║
+█████╗  ██║ ██║ ███╗█████╗  ██║   ██║██╔██╗██║
+██╔══╝  ██║ ██║  ██║██╔══╝  ██║   ██║██║╚████║
+██║    ██║ ╚██████╔╝███████╗╚██████╔╝██║ ╚███║
+╚═╝    ╚═╝  ╚═════╝ ╚══════╝ ╚═════╝ ╚═╝  ╚══╝
+            </pre>
+            <h1 style="margin: 0;">🕊️ Local Pigeon</h1>
+            <p style="color: #888; margin: 5px 0 0 0;">v{__version__} • Your local AI assistant powered by Ollama • 100% on-device</p>
+            </div>
             """
         )
         
@@ -80,24 +90,24 @@ def create_app(
                 with gr.Row():
                     msg_input = gr.Textbox(
                         label="Message",
-                        placeholder="Type your message here... (Press Enter to send)",
+                        placeholder="Type your message here...",
                         lines=2,
                         scale=4,
+                    )
+                    voice_input = gr.Audio(
+                        sources=["microphone"],
+                        type="filepath",
+                        label="🎤",
+                        scale=1,
                     )
                     send_btn = gr.Button("Send", variant="primary", scale=1)
                 
                 with gr.Row():
-                    voice_input = gr.Audio(
-                        sources=["microphone"],
-                        type="filepath",
-                        label="🎤 Voice Input (click to record)",
-                        scale=2,
-                    )
                     voice_status = gr.Textbox(
-                        label="Transcription",
+                        label="Voice Transcription",
                         placeholder="Your speech will appear here...",
                         interactive=False,
-                        scale=3,
+                        visible=False,
                     )
                 
                 with gr.Row():
@@ -223,7 +233,29 @@ def create_app(
                                 value=settings.ollama.max_tokens,
                             )
                 
-                with gr.Accordion("💳 Payment Settings", open=False):
+                with gr.Accordion("� Agent Behavior (Ralph Loop)", open=False):
+                    gr.Markdown(
+                        "Configure how the agent executes tool loops. "
+                        "[Learn about the Ralph Loop pattern](https://ghuntley.com/loop)"
+                    )
+                    with gr.Row():
+                        with gr.Column():
+                            checkpoint_mode = gr.Checkbox(
+                                label="Checkpoint Mode",
+                                value=settings.agent.checkpoint_mode,
+                                info="Require approval before each tool execution (watch the loop)",
+                            )
+                            
+                            max_tool_iterations = gr.Number(
+                                label="Max Tool Iterations",
+                                value=settings.agent.max_tool_iterations,
+                                minimum=1,
+                                maximum=50,
+                                step=1,
+                                info="Maximum tool calls per request before stopping",
+                            )
+                
+                with gr.Accordion("�💳 Payment Settings", open=False):
                     with gr.Row():
                         with gr.Column():
                             payment_threshold = gr.Number(
@@ -238,15 +270,34 @@ def create_app(
                             )
                 
                 with gr.Accordion("📁 Data Storage", open=False):
-                    data_dir = get_data_dir()
-                    gr.Markdown(f"**Data Directory:** `{data_dir}`")
+                    data_dir = ensure_data_dir()  # Ensure directory exists
                     gr.Markdown(
-                        """
-                        Your conversations, memories, and settings are stored locally.
+                        f"""
+                        ### Your Data Location
+                        
+                        All your data is stored locally on your device at:
+                        
+                        📂 **`{data_dir}`**
+                        
+                        This includes:
+                        - 💬 Conversations and chat history (`local_pigeon.db`)
+                        - 🧠 Memories and preferences
+                        - 🔑 Google OAuth tokens (`google_token.json`)
+                        - ⚙️ Settings and configuration (`.env`)
                         """
                     )
-                    open_folder_btn = gr.Button("📂 Open Data Folder")
-                    folder_status = gr.Textbox(label="", interactive=False, visible=False)
+                    with gr.Row():
+                        open_folder_btn = gr.Button("📂 Open Data Folder", scale=2)
+                        delete_data_btn = gr.Button("🗑️ Delete Local Data", variant="stop", scale=1)
+                    
+                    with gr.Row():
+                        delete_config_too = gr.Checkbox(
+                            label="Also delete configuration files (.env, credentials)",
+                            value=False,
+                            info="Check this to completely remove all data including settings",
+                        )
+                    
+                    folder_status = gr.Textbox(label="Status", interactive=False, visible=True)
                 
                 save_settings_btn = gr.Button("💾 Save Settings", variant="primary")
                 settings_status = gr.Textbox(label="Status", interactive=False)
@@ -261,7 +312,12 @@ def create_app(
                     """
                 )
                 
-                with gr.Accordion("💬 Discord Bot", open=True):
+                # Determine Discord status for accordion label
+                _discord_label = "💬 Discord Bot"
+                if settings.discord.bot_token:
+                    _discord_label = "✅ Discord Bot"
+                
+                with gr.Accordion(_discord_label, open=True):
                     gr.Markdown(
                         """
                         **Setup Instructions:**
@@ -305,7 +361,12 @@ def create_app(
                         save_discord_btn = gr.Button("💾 Save Discord Settings")
                         restart_discord_btn = gr.Button("🔄 Save & Restart App", variant="primary")
                 
-                with gr.Accordion("📱 Telegram Bot", open=False):
+                # Determine Telegram status for accordion label
+                _telegram_label = "📱 Telegram Bot"
+                if settings.telegram.bot_token:
+                    _telegram_label = "✅ Telegram Bot"
+                
+                with gr.Accordion(_telegram_label, open=False):
                     gr.Markdown(
                         """
                         **Setup Instructions:**
@@ -334,7 +395,15 @@ def create_app(
                         save_telegram_btn = gr.Button("💾 Save Telegram Settings")
                         restart_telegram_btn = gr.Button("🔄 Save & Restart App", variant="primary")
                 
-                with gr.Accordion("📧 Google Workspace", open=False):
+                # Determine Google status for accordion label
+                _google_token_exists = (get_data_dir() / "google_token.json").exists()
+                _google_label = "📧 Google Workspace"
+                if _google_token_exists:
+                    _google_label = "✅ Google Workspace"
+                elif settings.google.credentials_path:
+                    _google_label = "⚠️ Google Workspace (needs authorization)"
+                
+                with gr.Accordion(_google_label, open=False):
                     gr.Markdown(
                         """
                         **Setup Instructions:**
@@ -380,8 +449,19 @@ def create_app(
                     with gr.Row():
                         save_google_btn = gr.Button("💾 Save Google Settings")
                         authorize_google_btn = gr.Button("🔑 Authorize with Google", variant="primary")
+                        test_google_btn = gr.Button("🧪 Test Connection")
+                    
+                    google_auth_info = gr.Markdown(
+                        value="",
+                        visible=False,
+                    )
                 
-                with gr.Accordion("💳 Stripe Payments", open=False):
+                # Determine Stripe status for accordion label
+                _stripe_label = "💳 Stripe Payments"
+                if settings.payments.stripe.api_key:
+                    _stripe_label = "✅ Stripe Payments"
+                
+                with gr.Accordion(_stripe_label, open=False):
                     gr.Markdown(
                         """
                         **Setup Instructions:**
@@ -934,6 +1014,8 @@ def create_app(
             host: str,
             temp: float,
             tokens: int,
+            checkpoint_mode_val: bool,
+            max_iterations_val: int,
             threshold: float,
             require_approval_val: bool,
         ) -> str:
@@ -943,6 +1025,8 @@ def create_app(
                 settings.ollama.host = host
                 settings.ollama.temperature = temp
                 settings.ollama.max_tokens = int(tokens)
+                settings.agent.checkpoint_mode = checkpoint_mode_val
+                settings.agent.max_tool_iterations = int(max_iterations_val)
                 settings.payments.approval.threshold = threshold
                 settings.payments.approval.require_approval = require_approval_val
                 
@@ -1172,6 +1256,7 @@ def create_app(
         
         def save_google_settings(uploaded_file: str | None, creds_path: str, gmail_enabled: bool, calendar_enabled: bool, drive_enabled: bool) -> str:
             """Save Google settings, handling uploaded file or manual path."""
+            nonlocal agent
             try:
                 final_path = creds_path
                 
@@ -1208,17 +1293,33 @@ def create_app(
                 if final_path:
                     settings.google.credentials_path = final_path
                     _save_env_var("GOOGLE_CREDENTIALS_PATH", final_path)
-                    return f"✅ Google settings saved! Click 'Authorize with Google' to complete setup."
+                
+                # Reload agent tools if agent exists
+                tools_reloaded = ""
+                if agent is not None:
+                    registered = agent.reload_tools()
+                    enabled_tools = [t for t in registered if any(x in t.lower() for x in ["gmail", "calendar", "drive"])]
+                    if enabled_tools:
+                        tools_reloaded = f" Tools reloaded: {', '.join(enabled_tools)}"
+                    else:
+                        tools_reloaded = " (Google tools will be available after authorization)"
+                
+                if final_path:
+                    return f"✅ Google settings saved!{tools_reloaded} Click 'Authorize with Google' to complete setup."
                 else:
-                    return "✅ Google service settings saved! Upload credentials.json to enable."
+                    return f"✅ Google service settings saved!{tools_reloaded} Upload credentials.json to enable."
             except Exception as e:
                 return f"❌ Error: {str(e)}"
         
-        def authorize_google() -> str:
+        def authorize_google() -> tuple:
             """Trigger Google OAuth authorization flow."""
+            nonlocal agent
             creds_path = settings.google.credentials_path
             if not creds_path or not Path(creds_path).exists():
-                return "❌ Upload credentials.json first"
+                return (
+                    "❌ Upload credentials.json first",
+                    gr.update(visible=True, value="**Error:** You need to upload your `credentials.json` file before authorizing.\n\n1. Upload the file above\n2. Click 'Save Google Settings'\n3. Then click 'Authorize with Google'")
+                )
             
             try:
                 # Import here to avoid circular imports
@@ -1238,7 +1339,7 @@ def create_app(
                     "https://www.googleapis.com/auth/drive.file",
                 ]
                 
-                # Run OAuth flow
+                # Run OAuth flow - opens browser automatically and handles callback
                 flow = InstalledAppFlow.from_client_secrets_file(creds_path, SCOPES)
                 creds = flow.run_local_server(port=0)
                 
@@ -1248,9 +1349,153 @@ def create_app(
                 with open(token_path, "w") as token:
                     token.write(creds.to_json())
                 
-                return "✅ Google authorized successfully! You can now use Gmail, Calendar, and Drive."
+                success_info = """### ✅ Authorization Complete!
+
+**Your Google account is now connected.** Here's what you can do:
+
+**Available Services:**
+- 📧 **Gmail**: Read, search, and send emails
+- 📅 **Calendar**: View and create events
+- 📁 **Drive**: List, search, and read files
+
+**Test it out:**
+- Click the **🧪 Test Connection** button to verify everything works
+- Or ask the AI: *"What's on my calendar today?"* or *"Show my recent emails"*
+
+**Token saved to:** `{token_path}`
+""".format(token_path=token_path)
+                
+                # Reload tools so Google tools are immediately available
+                if agent is not None:
+                    registered = agent.reload_tools()
+                    google_tools = [t for t in registered if any(x in t.lower() for x in ["gmail", "calendar", "drive"])]
+                    if google_tools:
+                        success_info += f"\n**Tools loaded:** {', '.join(google_tools)}"
+                
+                return (
+                    "✅ Google authorized successfully!",
+                    gr.update(visible=True, value=success_info)
+                )
             except Exception as e:
-                return f"❌ Authorization failed: {str(e)}"
+                error_info = f"""### ❌ Authorization Failed
+
+**Error:** `{str(e)}`
+
+**Troubleshooting:**
+1. Make sure you complete the sign-in in your browser
+2. Check that your OAuth credentials are for a "Desktop app" type
+3. Ensure Gmail, Calendar, and Drive APIs are enabled in Google Cloud Console
+4. Try uploading your credentials.json file again
+"""
+                return (
+                    f"❌ Authorization failed: {str(e)}",
+                    gr.update(visible=True, value=error_info)
+                )
+        
+        def test_google_connection() -> tuple:
+            """Test that Google services are accessible."""
+            data_dir = get_data_dir()
+            token_path = data_dir / "google_token.json"
+            
+            if not token_path.exists():
+                return (
+                    "⚠️ Not authorized yet",
+                    gr.update(visible=True, value="**Not Authorized:** Click 'Authorize with Google' first to connect your account.")
+                )
+            
+            results = []
+            try:
+                from google.oauth2.credentials import Credentials
+                from googleapiclient.discovery import build
+                
+                creds = Credentials.from_authorized_user_file(str(token_path))
+                
+                # Direct links to enable each API
+                API_ENABLE_LINKS = {
+                    "Gmail": "https://console.cloud.google.com/apis/library/gmail.googleapis.com",
+                    "Google Calendar": "https://console.cloud.google.com/apis/library/calendar-json.googleapis.com",
+                    "Google Drive": "https://console.cloud.google.com/apis/library/drive.googleapis.com",
+                }
+                
+                def _format_google_error(e: Exception, service_name: str) -> str:
+                    """Format Google API errors with helpful messages."""
+                    err_str = str(e)
+                    if "403" in err_str:
+                        link = API_ENABLE_LINKS.get(service_name, "https://console.cloud.google.com/apis/library")
+                        return f"API not enabled - [Enable {service_name} API]({link})"
+                    elif "401" in err_str or "invalid_grant" in err_str.lower():
+                        return "Token expired - click 'Authorize with Google' again"
+                    elif "404" in err_str:
+                        return "Resource not found"
+                    else:
+                        return err_str[:60]
+                
+                # Test Gmail
+                if settings.google.gmail_enabled:
+                    try:
+                        service = build("gmail", "v1", credentials=creds)
+                        profile = service.users().getProfile(userId="me").execute()
+                        results.append(f"✅ **Gmail**: Connected as `{profile.get('emailAddress', 'unknown')}`")
+                    except Exception as e:
+                        results.append(f"❌ **Gmail**: {_format_google_error(e, 'Gmail')}")
+                else:
+                    results.append("⏸️ **Gmail**: Not enabled (check the Gmail checkbox above and save)")
+                
+                # Test Calendar
+                if settings.google.calendar_enabled:
+                    try:
+                        service = build("calendar", "v3", credentials=creds)
+                        calendar = service.calendars().get(calendarId="primary").execute()
+                        results.append(f"✅ **Calendar**: Connected - {calendar.get('summary', 'Primary')}")
+                    except Exception as e:
+                        results.append(f"❌ **Calendar**: {_format_google_error(e, 'Google Calendar')}")
+                else:
+                    results.append("⏸️ **Calendar**: Not enabled (check the Calendar checkbox above and save)")
+                
+                # Test Drive
+                if settings.google.drive_enabled:
+                    try:
+                        service = build("drive", "v3", credentials=creds)
+                        about = service.about().get(fields="user").execute()
+                        user = about.get("user", {})
+                        results.append(f"✅ **Drive**: Connected as `{user.get('displayName', 'unknown')}`")
+                    except Exception as e:
+                        results.append(f"❌ **Drive**: {_format_google_error(e, 'Google Drive')}")
+                else:
+                    results.append("⏸️ **Drive**: Not enabled (check the Drive checkbox above and save)")
+                
+                all_ok = all("✅" in r for r in results if "⏸️" not in r)
+                has_errors = any("❌" in r for r in results)
+                
+                if has_errors:
+                    status = "❌ Some services failed"
+                elif all_ok and not all("⏸️" in r for r in results):
+                    status = "✅ All enabled services working!"
+                else:
+                    status = "⚠️ No services enabled"
+                
+                test_info = "### 🧪 Connection Test Results\n\n" + "\n".join(results)
+                
+                # Add helpful tips based on results
+                if has_errors:
+                    test_info += "\n\n**Troubleshooting:**\n"
+                    if any("API not enabled" in r for r in results):
+                        test_info += "- Click the links above to enable each API, or enable all at once:\n"
+                        test_info += "  - [Enable Gmail API](https://console.cloud.google.com/apis/library/gmail.googleapis.com)\n"
+                        test_info += "  - [Enable Calendar API](https://console.cloud.google.com/apis/library/calendar-json.googleapis.com)\n"
+                        test_info += "  - [Enable Drive API](https://console.cloud.google.com/apis/library/drive.googleapis.com)\n"
+                    if any("Token expired" in r for r in results):
+                        test_info += "- Click 'Authorize with Google' to refresh your token\n"
+                elif all_ok:
+                    test_info += "\n\n**Ready to use!** Ask the AI to interact with your Google services."
+                
+                return (status, gr.update(visible=True, value=test_info))
+                
+            except Exception as e:
+                return (
+                    f"❌ Test failed: {str(e)}",
+                    gr.update(visible=True, value=f"**Error loading credentials:** `{str(e)}`\n\nTry re-authorizing with Google.")
+                )
         
         def save_stripe_settings(enabled: bool, api_key: str) -> str:
             """Save Stripe settings."""
@@ -1371,6 +1616,8 @@ def create_app(
                 ollama_host,
                 temperature,
                 max_tokens,
+                checkpoint_mode,
+                max_tool_iterations,
                 payment_threshold,
                 require_approval,
             ],
@@ -1459,7 +1706,12 @@ def create_app(
         
         authorize_google_btn.click(
             fn=authorize_google,
-            outputs=[google_status],
+            outputs=[google_status, google_auth_info],
+        )
+        
+        test_google_btn.click(
+            fn=test_google_connection,
+            outputs=[google_status, google_auth_info],
         )
         
         save_stripe_btn.click(

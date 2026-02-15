@@ -42,11 +42,48 @@ Remember: Your response either contains <tool_call> blocks (and I will execute t
 
 
 def parse_tool_calls_from_text(text: str) -> list[dict[str, Any]]:
-    """Parse tool calls from model output text."""
-    tool_calls = []
-    pattern = r'<tool_call>\s*(\{.*?\})\s*</tool_call>'
+    """
+    Parse tool calls from model output text.
     
+    Handles multiple formats:
+    - Properly formatted: <tool_call>{...}</tool_call>
+    - Missing opening tag: </tool_call>{...} or {...}</tool_call>
+    - Raw JSON with name/arguments structure
+    """
+    tool_calls = []
+    
+    # Pattern 1: Properly formatted tool calls
+    pattern = r'<tool_call>\s*(\{.*?\})\s*</tool_call>'
     matches = re.findall(pattern, text, re.DOTALL)
+    
+    # Pattern 2: Malformed - JSON followed by closing tag (no opening)
+    if not matches:
+        pattern2 = r'(\{[^{}]*"name"\s*:\s*"[^"]+"\s*,\s*"arguments"\s*:\s*\{[^{}]*\}[^{}]*\})\s*</tool_call>'
+        matches = re.findall(pattern2, text, re.DOTALL)
+    
+    # Pattern 3: Closing tag followed by JSON (weird but handles some models)
+    if not matches:
+        pattern3 = r'</tool_call>\s*(\{[^{}]*"name"\s*:\s*"[^"]+"\s*,\s*"arguments"\s*:\s*\{[^{}]*\}[^{}]*\})'
+        matches = re.findall(pattern3, text, re.DOTALL)
+    
+    # Pattern 4: Raw JSON objects that look like tool calls (no tags at all)
+    if not matches:
+        pattern4 = r'\{[^{}]*"name"\s*:\s*"([^"]+)"\s*,\s*"arguments"\s*:\s*(\{[^{}]*\})[^{}]*\}'
+        raw_matches = re.findall(pattern4, text, re.DOTALL)
+        for i, (name, args_str) in enumerate(raw_matches):
+            try:
+                args = json.loads(args_str)
+                tool_calls.append({
+                    "id": f"call_{i}",
+                    "name": name,
+                    "arguments": args,
+                })
+            except json.JSONDecodeError:
+                continue
+        if tool_calls:
+            return tool_calls
+    
+    # Parse matches from patterns 1-3
     for i, match in enumerate(matches):
         try:
             call_data = json.loads(match)
@@ -62,9 +99,38 @@ def parse_tool_calls_from_text(text: str) -> list[dict[str, Any]]:
 
 
 def strip_tool_calls_from_text(text: str) -> str:
-    """Remove tool call tags from text to get the natural response."""
+    """
+    Remove tool call tags and raw tool call JSON from text.
+    
+    Handles:
+    - Properly formatted: <tool_call>{...}</tool_call>
+    - Orphan tags: </tool_call>, <tool_call>
+    - Raw JSON tool calls
+    """
+    # Remove properly formatted tool calls
     pattern = r'<tool_call>\s*\{.*?\}\s*</tool_call>'
     cleaned = re.sub(pattern, '', text, flags=re.DOTALL)
+    
+    # Remove orphan closing tags followed by JSON
+    pattern2 = r'</tool_call>\s*\{[^{}]*"name"\s*:\s*"[^"]+"\s*,\s*"arguments"\s*:\s*\{[^{}]*\}[^{}]*\}'
+    cleaned = re.sub(pattern2, '', cleaned, flags=re.DOTALL)
+    
+    # Remove JSON followed by orphan closing tags
+    pattern3 = r'\{[^{}]*"name"\s*:\s*"[^"]+"\s*,\s*"arguments"\s*:\s*\{[^{}]*\}[^{}]*\}\s*</tool_call>'
+    cleaned = re.sub(pattern3, '', cleaned, flags=re.DOTALL)
+    
+    # Remove any remaining orphan tags
+    cleaned = re.sub(r'</?tool_call>', '', cleaned)
+    
+    # Remove raw JSON tool call objects that look like tool calls
+    # (JSON with "name" and "arguments" keys at the start)
+    pattern4 = r'^\s*\{\s*"name"\s*:\s*"[^"]+"\s*,\s*"arguments"\s*:\s*\{[^{}]*\}\s*\}\s*$'
+    cleaned = re.sub(pattern4, '', cleaned, flags=re.MULTILINE | re.DOTALL)
+    
+    # Also handle when it's at the start with other content after
+    pattern5 = r'^\s*\{\s*"name"\s*:\s*"[^"]+"\s*,\s*"arguments"\s*:\s*\{[^{}]*\}\s*\}\s*\n*'
+    cleaned = re.sub(pattern5, '', cleaned, flags=re.MULTILINE)
+    
     return cleaned.strip()
 
 
@@ -541,10 +607,57 @@ Based on this tool result, please continue with your task. Either use another to
                                         # Still inside tool call, wait for more
                                         break
                                 else:
+                                    # First, check for orphan </tool_call> (malformed output)
+                                    orphan_end = display_buffer.find("</tool_call>")
+                                    if orphan_end != -1:
+                                        # Remove orphan closing tag and everything before it that looks like JSON
+                                        # (the model probably outputted malformed tool call)
+                                        before_tag = display_buffer[:orphan_end]
+                                        # Check if there's JSON-like content to skip
+                                        json_start = before_tag.rfind("{")
+                                        if json_start != -1 and '"name"' in before_tag[json_start:]:
+                                            # Skip the JSON and closing tag
+                                            display_buffer = display_buffer[orphan_end + len("</tool_call>"):]
+                                        else:
+                                            # Just skip the orphan tag
+                                            display_buffer = before_tag + display_buffer[orphan_end + len("</tool_call>"):]
+                                        continue
+                                    
                                     # Look for start of tool call
                                     start_idx = display_buffer.find("<tool_call>")
                                     if start_idx == -1:
-                                        # No tool call found - check if we might be starting one
+                                        # No tool call found - check for raw JSON tool calls
+                                        # Pattern: {"name": "...", "arguments": {...}}
+                                        json_match = re.search(
+                                            r'\{\s*"name"\s*:\s*"[^"]+"\s*,\s*"arguments"\s*:\s*\{',
+                                            display_buffer
+                                        )
+                                        if json_match:
+                                            # Found JSON tool call - send content before it and wait
+                                            if json_match.start() > 0:
+                                                on_chunk(display_buffer[:json_match.start()])
+                                            # Keep from the JSON start to see if it completes
+                                            display_buffer = display_buffer[json_match.start():]
+                                            # Check if we have a complete JSON object
+                                            brace_count = 0
+                                            json_end = -1
+                                            for i, c in enumerate(display_buffer):
+                                                if c == '{':
+                                                    brace_count += 1
+                                                elif c == '}':
+                                                    brace_count -= 1
+                                                    if brace_count == 0:
+                                                        json_end = i
+                                                        break
+                                            if json_end != -1:
+                                                # Complete JSON found - skip it
+                                                display_buffer = display_buffer[json_end + 1:]
+                                                continue
+                                            else:
+                                                # Incomplete JSON - wait for more
+                                                break
+                                        
+                                        # Check if we might be starting one
                                         # Keep potential partial matches in buffer
                                         potential_start = -1
                                         for i in range(1, len("<tool_call>")):
@@ -581,9 +694,10 @@ Based on this tool result, please continue with your task. Either use another to
             
             # Flush any remaining non-tool-call content
             if use_prompt_tools and on_chunk and display_buffer and not in_tool_call:
-                # Make sure we're not showing partial tool call tags
-                if "<tool_call>" not in display_buffer and "</tool_call>" not in display_buffer:
-                    on_chunk(display_buffer)
+                # Clean any tool-call-related content from remaining buffer
+                cleaned_buffer = strip_tool_calls_from_text(display_buffer)
+                if cleaned_buffer:
+                    on_chunk(cleaned_buffer)
             
         except ollama.ResponseError as e:
             # Check if the error is about tool support
