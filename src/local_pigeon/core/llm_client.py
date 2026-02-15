@@ -27,11 +27,17 @@ TOOL_SYSTEM_PROMPT = """You have access to the following tools. To use a tool, r
 Available tools:
 {tool_descriptions}
 
-Important rules:
-- Only use tools when needed to answer the user's question
-- You can make multiple tool calls by including multiple <tool_call> blocks
-- After receiving tool results, provide a natural response to the user
-- If no tool is needed, just respond normally without any <tool_call> tags
+IMPORTANT RULES:
+1. Only use tools when you need external information or actions to answer the user's question
+2. You can make multiple tool calls by including multiple <tool_call> blocks
+3. After you receive tool results, analyze them and either:
+   - Use another tool if you need more information
+   - Provide your FINAL ANSWER to the user (without any <tool_call> tags)
+4. If no tool is needed, respond directly without any <tool_call> tags
+5. NEVER include raw <tool_call> tags in your final answer to the user
+6. When you have all the information you need, give a complete, helpful response
+
+Remember: Your response either contains <tool_call> blocks (and I will execute them), OR it's a final answer to the user. Never mix them.
 """
 
 
@@ -211,10 +217,15 @@ class OllamaClient:
         messages: list[Message],
         tools: list[ToolDefinition],
     ) -> list[Message]:
-        """Add tool calling instructions to the system prompt."""
+        """Add tool calling instructions to the system prompt.
+        
+        For prompt-based tool calling, we also need to convert 'tool' role
+        messages to a format the model understands, since many models
+        don't have a native 'tool' role.
+        """
         tool_prompt = build_tool_prompt(tools)
         
-        # Find or create system message
+        # Process messages
         new_messages = []
         has_system = False
         
@@ -224,6 +235,23 @@ class OllamaClient:
                 new_content = tool_prompt + "\n\n" + msg.content
                 new_messages.append(Message(role="system", content=new_content))
                 has_system = True
+            elif msg.role == "tool":
+                # Convert tool result to a user message format the model understands
+                tool_result_content = f"""<tool_result>
+Tool: {msg.name}
+Result: {msg.content}
+</tool_result>
+
+Based on this tool result, please continue with your task. Either use another tool if needed, or provide your final answer to the user."""
+                new_messages.append(Message(role="user", content=tool_result_content))
+            elif msg.role == "assistant" and msg.tool_calls:
+                # For assistant messages with tool calls, show what tool was called
+                tool_call_summary = "\n".join(
+                    f"[Called tool: {tc.name} with args: {json.dumps(tc.arguments)}]"
+                    for tc in msg.tool_calls
+                )
+                content = msg.content + "\n" + tool_call_summary if msg.content else tool_call_summary
+                new_messages.append(Message(role="assistant", content=content))
             else:
                 new_messages.append(msg)
         
@@ -471,6 +499,11 @@ class OllamaClient:
         full_content = ""
         final_message = None
         
+        # For prompt-based tools, we need to buffer content to filter tool calls from display
+        display_buffer = ""
+        tool_call_pattern_start = "<tool_call>"
+        in_tool_call = False
+        
         try:
             stream = await self._async_client.chat(
                 model=use_model,
@@ -489,12 +522,68 @@ class OllamaClient:
                 
                 if content:
                     full_content += content
+                    
                     if on_chunk:
-                        on_chunk(content)
+                        if use_prompt_tools:
+                            # Buffer content and filter out tool calls for display
+                            display_buffer += content
+                            
+                            # Process buffer to send displayable content
+                            while True:
+                                if in_tool_call:
+                                    # Look for end of tool call
+                                    end_idx = display_buffer.find("</tool_call>")
+                                    if end_idx != -1:
+                                        # Skip past the tool call
+                                        display_buffer = display_buffer[end_idx + len("</tool_call>"):]
+                                        in_tool_call = False
+                                    else:
+                                        # Still inside tool call, wait for more
+                                        break
+                                else:
+                                    # Look for start of tool call
+                                    start_idx = display_buffer.find("<tool_call>")
+                                    if start_idx == -1:
+                                        # No tool call found - check if we might be starting one
+                                        # Keep potential partial matches in buffer
+                                        potential_start = -1
+                                        for i in range(1, len("<tool_call>")):
+                                            if display_buffer.endswith("<tool_call>"[:i]):
+                                                potential_start = len(display_buffer) - i
+                                                break
+                                        
+                                        if potential_start > 0:
+                                            # Send everything before the potential match
+                                            on_chunk(display_buffer[:potential_start])
+                                            display_buffer = display_buffer[potential_start:]
+                                        elif potential_start == -1:
+                                            # No potential match, send everything
+                                            if display_buffer:
+                                                on_chunk(display_buffer)
+                                            display_buffer = ""
+                                        break
+                                    elif start_idx > 0:
+                                        # Send content before tool call
+                                        on_chunk(display_buffer[:start_idx])
+                                        display_buffer = display_buffer[start_idx:]
+                                        in_tool_call = True
+                                    else:
+                                        # Tool call starts at beginning
+                                        in_tool_call = True
+                                        continue
+                        else:
+                            # Native tools or no tools - send directly
+                            on_chunk(content)
                 
                 # Keep the last message for tool_calls
                 if chunk.get("done", False):
                     final_message = message
+            
+            # Flush any remaining non-tool-call content
+            if use_prompt_tools and on_chunk and display_buffer and not in_tool_call:
+                # Make sure we're not showing partial tool call tags
+                if "<tool_call>" not in display_buffer and "</tool_call>" not in display_buffer:
+                    on_chunk(display_buffer)
             
         except ollama.ResponseError as e:
             # Check if the error is about tool support

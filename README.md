@@ -1,7 +1,17 @@
-# �️ Local Pigeon
+# 🕊️ Local Pigeon
+
+```
+  _                     _   ____  _                       
+ | |    ___   ___ __ _| | |  _ \(_) __ _  ___  ___  _ __  
+ | |   / _ \ / __/ _` | | | |_) | |/ _` |/ _ \/ _ \| '_ \ 
+ | |__| (_) | (_| (_| | | |  __/| | (_| |  __/ (_) | | | |
+ |_____\___/ \___\__,_|_| |_|   |_|\__, |\___|\___/|_| |_|
+                                   |___/                  
+```
 
 **A fully local AI agent powered by Ollama (or llama-cpp-python).** Your AI assistant that runs entirely on your device, connecting to Discord, Telegram, or a web interface while keeping all LLM inference local and private.
 
+[![PyPI version](https://img.shields.io/pypi/v/local-pigeon.svg)](https://pypi.org/project/local-pigeon/)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
@@ -10,10 +20,13 @@
 - 🧠 **Local LLM Inference** - Uses Ollama for on-device model inference
 - 🔐 **Privacy First** - Your conversations never leave your device
 - 💬 **Multi-Platform** - Discord, Telegram, and Web UI support
-- 🔧 **Extensible Tools** - Web search, file operations, and more
+- 🔧 **Extensible Tools** - Web search, browser automation, and more
+- 🌐 **Browser Automation** - Navigate dynamic websites (Google Flights, etc.)
+- 🎤 **Voice Input** - Speech-to-text for hands-free interaction
 - 📧 **Google Workspace** - Gmail, Calendar, and Drive integration
 - 💳 **Payment Capabilities** - Stripe virtual cards and crypto (USDC/ETH)
 - ✅ **Human-in-the-Loop** - Approval workflow for sensitive operations
+- 📊 **Activity Dashboard** - Track interactions across all platforms
 - 🚀 **Easy Setup** - One-command installation
 
 ## 📋 Prerequisites
@@ -40,6 +53,11 @@ curl -sSL https://raw.githubusercontent.com/tradermichael/local_pigeon/main/inst
 
 ```bash
 pip install local-pigeon
+
+# Optional features:
+pip install local-pigeon[browser]  # Browser automation (Playwright)
+pip install local-pigeon[voice]    # Voice input (Speech Recognition)
+pip install local-pigeon[all]      # Everything
 ```
 
 ### Option 3: From Source
@@ -97,6 +115,10 @@ TELEGRAM_BOT_TOKEN=your_telegram_bot_token
 GOOGLE_CLIENT_ID=your_client_id
 GOOGLE_CLIENT_SECRET=your_client_secret
 
+# Browser automation (optional)
+BROWSER_ENABLED=true
+BROWSER_HEADLESS=true  # false to see browser window
+
 # Payments (optional)
 STRIPE_API_KEY=sk_...
 PAYMENT_APPROVAL_THRESHOLD=25.00
@@ -147,6 +169,8 @@ Access at `http://localhost:7860` when running with `--platform web`.
 
 **Features:**
 - Chat interface with streaming
+- Voice input (microphone)
+- Activity log across all platforms
 - Settings panel
 - OAuth setup for Google
 - Tool execution display
@@ -156,6 +180,8 @@ Access at `http://localhost:7860` when running with `--platform web`.
 ### Web Tools
 - **Web Search** - Search using DuckDuckGo
 - **Web Fetch** - Extract content from web pages
+- **Browser** - Full browser automation (Playwright)
+- **Browser Search** - Specialized search tasks (Google Flights, etc.)
 
 ### Google Workspace
 - **Gmail** - Read, search, and send emails
@@ -165,6 +191,14 @@ Access at `http://localhost:7860` when running with `--platform web`.
 ### Payments
 - **Stripe Card** - Virtual card for online payments
 - **Crypto Wallet** - USDC/ETH on Base network
+
+### Discord Tools
+- **Send Messages** - Post to channels
+- **Send DMs** - Direct message users
+- **Get Messages** - Read channel history
+- **Add Reactions** - React to messages
+- **List Channels** - See available channels
+- **Create Threads** - Start discussion threads
 
 ## 💳 Payment System
 
@@ -209,7 +243,11 @@ local_pigeon/
 │   └── local_pigeon/
 │       ├── core/           # Agent, LLM client, conversation
 │       ├── platforms/      # Discord, Telegram adapters
-│       ├── tools/          # Web, Google, Payment tools
+│       ├── tools/          # Web, Google, Payment, Discord tools
+│       │   ├── web/        # Search, fetch, browser automation
+│       │   ├── google/     # Gmail, Calendar, Drive
+│       │   ├── discord/    # Discord action tools
+│       │   └── payments/   # Stripe, crypto wallet
 │       ├── storage/        # Database, credentials
 │       ├── ui/             # Gradio web interface
 │       ├── config.py       # Configuration management
@@ -283,6 +321,7 @@ MIT License - see [LICENSE](LICENSE) for details.
 ## 🙏 Acknowledgments
 
 - [Ollama](https://ollama.ai) - Local LLM runtime
+- [Playwright](https://playwright.dev) - Browser automation
 - [discord.py](https://discordpy.readthedocs.io/) - Discord API wrapper
 - [aiogram](https://docs.aiogram.dev/) - Telegram Bot framework
 - [Gradio](https://gradio.app) - Web UI framework

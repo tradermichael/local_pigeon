@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "local-pigeon"
-version = "0.1.0"
+version = "0.2.0"
 description = "Local AI agent with Discord/Telegram, Google Workspace, and payments - powered by Ollama"
 readme = "README.md"
 license = "MIT"
@@ -77,6 +77,19 @@ dev = [
 ]
 crypto = [
     "coinbase-agentkit>=0.1",
+]
+browser = [
+    "playwright>=1.40",
+]
+voice = [
+    "SpeechRecognition>=3.10",
+    "pydub>=0.25",
+]
+all = [
+    "coinbase-agentkit>=0.1",
+    "playwright>=1.40",
+    "SpeechRecognition>=3.10",
+    "pydub>=0.25",
 ]
 
 [project.scripts]

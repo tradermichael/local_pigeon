@@ -1,5 +1,6 @@
 # Local Pigeon - Requirements
 # Install with: pip install -r requirements.txt
+# Or: pip install local-pigeon
 
 # Core
 ollama>=0.4.0
@@ -22,7 +23,7 @@ google-auth-httplib2>=0.2.0
 
 # Payments
 stripe>=7.0
-# coinbase-agentkit>=0.1  # Optional: uncomment for crypto wallet support
+# coinbase-agentkit>=0.1  # Optional: pip install local-pigeon[crypto]
 
 # Web & HTTP
 duckduckgo-search>=4.0
@@ -36,3 +37,11 @@ cryptography>=42.0
 # Config
 python-dotenv>=1.0
 pyyaml>=6.0
+
+# =============================================================================
+# OPTIONAL DEPENDENCIES
+# Install with: pip install local-pigeon[all]
+# =============================================================================
+# playwright>=1.40        # Browser automation: pip install local-pigeon[browser]
+# SpeechRecognition>=3.10 # Voice input: pip install local-pigeon[voice]
+# pydub>=0.25             # Voice input audio processing

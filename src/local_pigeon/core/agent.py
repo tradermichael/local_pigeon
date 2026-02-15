@@ -196,6 +196,12 @@ class LocalPigeonAgent:
             from local_pigeon.tools.web.fetch import WebFetchTool
             self.tools.register(WebFetchTool(settings=self.settings.web.fetch))
         
+        # Browser automation (Playwright)
+        if self.settings.web.browser.enabled:
+            from local_pigeon.tools.web.browser import BrowserTool, BrowserSearchTool
+            self.tools.register(BrowserTool(settings=self.settings.web.browser))
+            self.tools.register(BrowserSearchTool(settings=self.settings.web.browser))
+        
         # Google Workspace tools
         if self.settings.google.gmail_enabled:
             from local_pigeon.tools.google.gmail import GmailTool
@@ -224,6 +230,35 @@ class LocalPigeonAgent:
                 approval_settings=self.settings.payments.approval,
             ))
     
+    def register_discord_tools(self, bot: Any) -> None:
+        """
+        Register Discord-specific tools with the bot instance.
+        
+        Called by the Discord adapter when the bot connects.
+        This allows the agent to perform actions on Discord.
+        """
+        if not self.settings.discord.enabled:
+            return
+        
+        from local_pigeon.tools.discord import (
+            DiscordSendMessageTool,
+            DiscordSendDMTool,
+            DiscordGetMessagesTool,
+            DiscordAddReactionTool,
+            DiscordListChannelsTool,
+            DiscordCreateThreadTool,
+            DiscordGetServerInfoTool,
+        )
+        
+        # Register Discord tools with bot reference
+        self.tools.register(DiscordSendMessageTool(bot=bot))
+        self.tools.register(DiscordSendDMTool(bot=bot))
+        self.tools.register(DiscordGetMessagesTool(bot=bot))
+        self.tools.register(DiscordAddReactionTool(bot=bot))
+        self.tools.register(DiscordListChannelsTool(bot=bot))
+        self.tools.register(DiscordCreateThreadTool(bot=bot))
+        self.tools.register(DiscordGetServerInfoTool(bot=bot))
+    
     def register_approval_handler(
         self,
         platform: str,
@@ -238,8 +273,23 @@ class LocalPigeonAgent:
         self._approval_handlers[platform] = handler
     
     def get_system_prompt(self) -> str:
-        """Get the base system prompt with tool information."""
-        base_prompt = self.settings.agent.system_prompt
+        """Get the base system prompt with current time and tool information."""
+        from datetime import datetime
+        
+        # Get current date/time in user-friendly format
+        now = datetime.now()
+        
+        # Format: "Friday, February 14, 2026 at 3:45 PM"
+        date_str = now.strftime("%A, %B %d, %Y")
+        time_str = now.strftime("%I:%M %p").lstrip("0")
+        
+        # Build the prompt with current time context
+        time_context = f"""Current date and time: {date_str} at {time_str}
+Timezone: {datetime.now().astimezone().tzinfo}
+
+"""
+        
+        base_prompt = time_context + self.settings.agent.system_prompt
         
         if self.settings.agent.tools_enabled and self.tools.list_tools():
             tool_list = "\n".join(
@@ -340,19 +390,28 @@ class LocalPigeonAgent:
         max_iterations: int = 10,
     ) -> str:
         """
-        Run the agentic loop, executing tools until completion.
+        Run the agentic orchestrator loop, executing tools until task completion.
         
         The loop continues while the model requests tool calls,
-        up to max_iterations to prevent infinite loops.
+        up to max_iterations to prevent infinite loops. After executing
+        tools, results are fed back to the model to continue reasoning.
+        
+        This implements the pattern:
+        1. Reasoning: Model decides what to do
+        2. Tool Call: Model requests tool execution
+        3. Execution: We run the tool and get results
+        4. Re-entry: Feed results back to model
+        5. Repeat until model provides final answer without tool calls
         """
         iteration = 0
+        tool_results_this_session = []
         
         while iteration < max_iterations:
             iteration += 1
             
             # Get LLM response
-            if stream_callback and iteration == 1:
-                # Stream the first response
+            if stream_callback and iteration == 1 and not tool_results_this_session:
+                # Stream only the very first response before any tools are called
                 response = await self.llm.achat_stream_full(
                     messages=messages,
                     tools=tools,
@@ -364,15 +423,27 @@ class LocalPigeonAgent:
                     tools=tools,
                 )
             
-            # If no tool calls, we're done
+            # Check if model is done (no tool calls)
             if not response.tool_calls:
-                return response.content
+                # Model provided a final answer
+                final_response = response.content
+                
+                # If we executed tools, prepend a brief status
+                if tool_results_this_session and stream_callback:
+                    # Stream the final response
+                    stream_callback(final_response)
+                
+                return final_response
             
-            # Add assistant message with tool calls
+            # Model wants to use tools - add assistant message
             messages.append(response)
             
-            # Execute tool calls
+            # Execute each tool call
             for tool_call in response.tool_calls:
+                # Notify user that tool is being executed
+                if stream_callback:
+                    stream_callback(f"\n🔧 Using {tool_call.name}...\n")
+                
                 result = await self._execute_tool(
                     tool_call=tool_call,
                     user_id=user_id,
@@ -381,7 +452,6 @@ class LocalPigeonAgent:
                 
                 # Handle approval requirements
                 if result.requires_approval:
-                    # Create pending approval
                     approval_id = str(uuid.uuid4())
                     pending = PendingApproval(
                         id=approval_id,
@@ -393,11 +463,9 @@ class LocalPigeonAgent:
                     )
                     self._pending_approvals[approval_id] = pending
                     
-                    # Try to get approval
                     approved = await self._request_approval(pending, platform)
                     
                     if approved:
-                        # Re-execute with approval
                         result = await self._execute_tool(
                             tool_call=tool_call,
                             user_id=user_id,
@@ -412,19 +480,28 @@ class LocalPigeonAgent:
                             success=False,
                         )
                     
-                    # Clean up
                     del self._pending_approvals[approval_id]
                 
-                # Add tool result to messages
+                # Track tool results
+                tool_results_this_session.append(result)
+                
+                # Add tool result to conversation for next iteration
                 messages.append(Message(
                     role="tool",
                     content=result.result,
                     tool_call_id=tool_call.id,
                     name=tool_call.name,
                 ))
+            
+            # Continue loop - model will process tool results and decide next step
         
-        # Max iterations reached
-        return "I've completed multiple steps but haven't reached a final answer. Please let me know if you'd like me to continue."
+        # Max iterations reached - provide a helpful response
+        return (
+            f"I've completed {iteration} steps using tools but need more iterations to finish. "
+            "Here's what I've done so far:\n"
+            + "\n".join(f"- {r.name}: {'✓' if r.success else '✗'}" for r in tool_results_this_session)
+            + "\n\nPlease let me know if you'd like me to continue."
+        )
     
     async def _execute_tool(
         self,

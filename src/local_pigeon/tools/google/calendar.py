@@ -12,7 +12,7 @@ from typing import Any
 from local_pigeon.tools.registry import Tool
 
 
-def get_calendar_service(credentials_path: str, token_path: str = "calendar_token.json"):
+def get_calendar_service(credentials_path: str, token_path: str | None = None):
     """
     Get an authenticated Calendar service.
     """
@@ -21,6 +21,12 @@ def get_calendar_service(credentials_path: str, token_path: str = "calendar_toke
     from google.oauth2.credentials import Credentials
     from google_auth_oauthlib.flow import InstalledAppFlow
     from googleapiclient.discovery import build
+    from local_pigeon.config import get_data_dir
+    
+    # Use data directory for token storage
+    if token_path is None:
+        data_dir = get_data_dir()
+        token_path = str(data_dir / "google_token.json")
     
     SCOPES = [
         "https://www.googleapis.com/auth/calendar",

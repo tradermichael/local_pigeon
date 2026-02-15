@@ -105,6 +105,7 @@ class DiscordSettings(BaseSettings):
     """Discord bot settings."""
     
     bot_token: str = Field(default="", description="Discord bot token")
+    app_id: str = Field(default="", description="Discord application ID (for invite URL)")
     allowed_channels: list[str] = Field(default_factory=list, description="Allowed channel IDs")
     admin_users: list[str] = Field(default_factory=list, description="Admin user IDs")
     enabled: bool = Field(default=False, description="Enable Discord bot")
@@ -211,11 +212,24 @@ class WebFetchSettings(BaseSettings):
     user_agent: str = Field(default="LocalPigeon/0.1", description="User agent string")
 
 
+class BrowserSettings(BaseSettings):
+    """Browser automation settings (Playwright)."""
+    
+    enabled: bool = Field(default=False, description="Enable browser automation")
+    headless: bool = Field(default=True, description="Run browser in headless mode")
+    timeout: int = Field(default=30000, description="Page navigation timeout (ms)")
+    viewport_width: int = Field(default=1280, description="Browser viewport width")
+    viewport_height: int = Field(default=720, description="Browser viewport height")
+    
+    model_config = SettingsConfigDict(env_prefix="BROWSER_")
+
+
 class WebSettings(BaseSettings):
     """Combined web settings."""
     
     search: WebSearchSettings = Field(default_factory=WebSearchSettings)
     fetch: WebFetchSettings = Field(default_factory=WebFetchSettings)
+    browser: BrowserSettings = Field(default_factory=BrowserSettings)
 
 
 class StorageSettings(BaseSettings):

@@ -67,6 +67,9 @@ class DiscordAdapter(BasePlatformAdapter):
         async def on_ready():
             print(f"Discord bot logged in as {self.bot.user}")
             
+            # Register Discord tools with the agent
+            self.agent.register_discord_tools(self.bot)
+            
             # Sync slash commands
             try:
                 synced = await self.bot.tree.sync()

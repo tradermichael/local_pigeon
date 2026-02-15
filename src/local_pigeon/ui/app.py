@@ -11,7 +11,9 @@ Provides:
 """
 
 import asyncio
+import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -78,11 +80,25 @@ def create_app(
                 with gr.Row():
                     msg_input = gr.Textbox(
                         label="Message",
-                        placeholder="Type your message here...",
+                        placeholder="Type your message here... (Press Enter to send)",
                         lines=2,
                         scale=4,
                     )
                     send_btn = gr.Button("Send", variant="primary", scale=1)
+                
+                with gr.Row():
+                    voice_input = gr.Audio(
+                        sources=["microphone"],
+                        type="filepath",
+                        label="🎤 Voice Input (click to record)",
+                        scale=2,
+                    )
+                    voice_status = gr.Textbox(
+                        label="Transcription",
+                        placeholder="Your speech will appear here...",
+                        interactive=False,
+                        scale=3,
+                    )
                 
                 with gr.Row():
                     clear_btn = gr.Button("🗑️ Clear History")
@@ -148,6 +164,40 @@ def create_app(
                             placeholder="Enter key name",
                         )
                         delete_memory_btn = gr.Button("🗑️ Delete Memory", variant="stop")
+            
+            # Activity Log Tab
+            with gr.Tab("📊 Activity"):
+                gr.Markdown(
+                    """
+                    ### Activity Log
+                    
+                    View recent interactions across all platforms (Web, Discord, Telegram).
+                    Tool usage and messages are tracked here.
+                    """
+                )
+                
+                with gr.Row():
+                    activity_platform_filter = gr.Dropdown(
+                        label="Filter by Platform",
+                        choices=["All", "web", "discord", "telegram", "cli"],
+                        value="All",
+                    )
+                    refresh_activity_btn = gr.Button("🔄 Refresh Activity")
+                
+                activity_log = gr.Dataframe(
+                    headers=["Time", "Platform", "User", "Role", "Content"],
+                    datatype=["str", "str", "str", "str", "str"],
+                    label="Recent Activity",
+                    interactive=False,
+                    row_count=15,
+                )
+                
+                gr.Markdown("### Tool Usage Summary")
+                tool_usage_summary = gr.Textbox(
+                    label="Tools used in recent sessions",
+                    lines=3,
+                    interactive=False,
+                )
             
             # Settings Tab
             with gr.Tab("⚙️ Settings"):
@@ -218,9 +268,10 @@ def create_app(
                         1. Go to [discord.com/developers/applications](https://discord.com/developers/applications)
                         2. Click **"New Application"** and name it
                         3. Go to **Bot** section → Click **"Add Bot"**
-                        4. Click **"Copy"** under Token
-                        5. Enable **MESSAGE CONTENT INTENT**
-                        6. Use OAuth2 → URL Generator to invite the bot to your server
+                        4. **Disable** "Requires OAuth2 Code Grant" (if enabled)
+                        5. Enable **MESSAGE CONTENT INTENT** under Privileged Intents
+                        6. Copy the **Bot Token** and **Application ID** (from General Information)
+                        7. Generate the invite link below and add the bot to your server
                         """
                     )
                     discord_enabled = gr.Checkbox(
@@ -233,12 +284,26 @@ def create_app(
                         value=settings.discord.bot_token if settings.discord.bot_token else "",
                         placeholder="Paste your Discord bot token here",
                     )
+                    discord_app_id = gr.Textbox(
+                        label="Application ID (for invite link)",
+                        value=settings.discord.app_id if settings.discord.app_id else "",
+                        placeholder="Found on General Information page (e.g., 123456789012345678)",
+                    )
+                    discord_invite_url = gr.Textbox(
+                        label="Bot Invite URL",
+                        value="",
+                        interactive=False,
+                        placeholder="Enter Application ID above to generate invite link",
+                    )
+                    generate_invite_btn = gr.Button("🔗 Generate Invite Link")
                     discord_status = gr.Textbox(
                         label="Status",
                         value="✅ Configured" if settings.discord.bot_token else "⚠️ Not configured",
                         interactive=False,
                     )
-                    save_discord_btn = gr.Button("💾 Save Discord Settings")
+                    with gr.Row():
+                        save_discord_btn = gr.Button("💾 Save Discord Settings")
+                        restart_discord_btn = gr.Button("🔄 Save & Restart App", variant="primary")
                 
                 with gr.Accordion("📱 Telegram Bot", open=False):
                     gr.Markdown(
@@ -265,7 +330,9 @@ def create_app(
                         value="✅ Configured" if settings.telegram.bot_token else "⚠️ Not configured",
                         interactive=False,
                     )
-                    save_telegram_btn = gr.Button("💾 Save Telegram Settings")
+                    with gr.Row():
+                        save_telegram_btn = gr.Button("💾 Save Telegram Settings")
+                        restart_telegram_btn = gr.Button("🔄 Save & Restart App", variant="primary")
                 
                 with gr.Accordion("📧 Google Workspace", open=False):
                     gr.Markdown(
@@ -275,21 +342,44 @@ def create_app(
                         2. Create a new project
                         3. Enable **Gmail**, **Calendar**, and **Drive** APIs
                         4. Create OAuth credentials (Desktop app)
-                        5. Download the JSON file and save it
-                        6. Enter the path to the file below
+                        5. Download the JSON file
+                        6. **Upload** the file below, or enter the path manually
                         """
                     )
+                    google_creds_upload = gr.File(
+                        label="Upload credentials.json",
+                        file_types=[".json"],
+                        type="filepath",
+                    )
                     google_creds_path = gr.Textbox(
-                        label="Credentials JSON Path",
+                        label="Or enter path manually",
                         value=settings.google.credentials_path if settings.google.credentials_path else "",
                         placeholder="Path to your credentials.json file",
                     )
+                    
+                    gr.Markdown("**Enable Services:**")
+                    with gr.Row():
+                        google_gmail_enabled = gr.Checkbox(
+                            label="Gmail",
+                            value=settings.google.gmail_enabled,
+                        )
+                        google_calendar_enabled = gr.Checkbox(
+                            label="Calendar",
+                            value=settings.google.calendar_enabled,
+                        )
+                        google_drive_enabled = gr.Checkbox(
+                            label="Drive",
+                            value=settings.google.drive_enabled,
+                        )
+                    
                     google_status = gr.Textbox(
                         label="Status",
-                        value="✅ Configured" if settings.google.credentials_path else "⚠️ Not configured",
+                        value="✅ Credentials uploaded" if settings.google.credentials_path else "⚠️ Upload credentials.json first",
                         interactive=False,
                     )
-                    save_google_btn = gr.Button("💾 Save Google Settings")
+                    with gr.Row():
+                        save_google_btn = gr.Button("💾 Save Google Settings")
+                        authorize_google_btn = gr.Button("🔑 Authorize with Google", variant="primary")
                 
                 with gr.Accordion("💳 Stripe Payments", open=False):
                     gr.Markdown(
@@ -326,6 +416,7 @@ def create_app(
                     value=[
                         ["Web Search", "Search the web using DuckDuckGo", settings.web.search.enabled],
                         ["Web Fetch", "Fetch and extract content from web pages", settings.web.fetch.enabled],
+                        ["Browser", "Navigate dynamic websites (Google Flights, etc.)", settings.web.browser.enabled],
                         ["Gmail", "Read and send emails", settings.google.gmail_enabled],
                         ["Calendar", "Manage Google Calendar events", settings.google.calendar_enabled],
                         ["Drive", "Access Google Drive files", settings.google.drive_enabled],
@@ -334,6 +425,38 @@ def create_app(
                     ],
                     interactive=False,
                 )
+                
+                with gr.Accordion("🌐 Browser Automation (Playwright)", open=True):
+                    gr.Markdown(
+                        """
+                        **Browser automation** allows the AI to navigate websites that require JavaScript,
+                        fill forms, and extract data from dynamic content (like Google Flights prices).
+                        
+                        **First-time setup:** Run `playwright install chromium` after enabling.
+                        """
+                    )
+                    with gr.Row():
+                        browser_enabled = gr.Checkbox(
+                            label="Enable Browser Automation",
+                            value=settings.web.browser.enabled,
+                        )
+                        browser_headless = gr.Checkbox(
+                            label="Headless Mode (no visible window)",
+                            value=settings.web.browser.headless,
+                            info="Uncheck to see the browser window during automation",
+                        )
+                    
+                    browser_status = gr.Textbox(
+                        label="Status",
+                        value="✅ Enabled (headless)" if settings.web.browser.enabled and settings.web.browser.headless 
+                              else "✅ Enabled (GUI mode)" if settings.web.browser.enabled 
+                              else "⚠️ Disabled",
+                        interactive=False,
+                    )
+                    
+                    with gr.Row():
+                        save_browser_btn = gr.Button("💾 Save Browser Settings", variant="primary")
+                        install_playwright_btn = gr.Button("📦 Install Playwright")
             
             # Documentation Tab
             with gr.Tab("📚 Docs"):
@@ -726,12 +849,17 @@ def create_app(
             try:
                 current_agent = await get_agent()
                 
-                # Collect response
+                # Collect response and tool calls
                 response_parts = []
                 tool_calls_log = []
                 
                 def stream_callback(chunk: str) -> None:
                     response_parts.append(chunk)
+                    # Capture tool usage from stream
+                    if "🔧 Using " in chunk:
+                        from datetime import datetime
+                        timestamp = datetime.now().strftime("%H:%M:%S")
+                        tool_calls_log.append(f"[{timestamp}] {chunk.strip()}")
                 
                 response = await current_agent.chat(
                     user_message=message,
@@ -747,7 +875,10 @@ def create_app(
                     {"role": "assistant", "content": response},
                 ]
                 
-                return "", history, "\n".join(tool_calls_log)
+                # Build tool log display
+                tool_log_text = "\n".join(tool_calls_log) if tool_calls_log else "No tools used."
+                
+                return "", history, tool_log_text
                 
             except Exception as e:
                 error_msg = f"Error: {str(e)}"
@@ -877,8 +1008,144 @@ def create_app(
             except Exception as e:
                 return await load_memories(), f"❌ Error: {str(e)}"
         
+        # Voice transcription handler
+        async def transcribe_audio(audio_path: str) -> tuple[str, str]:
+            """Transcribe audio using Whisper via Ollama or local model."""
+            if not audio_path:
+                return "", ""
+            
+            try:
+                # Try using OpenAI Whisper API locally if available
+                # Or use a speech-to-text service
+                import httpx
+                
+                # First, try Ollama's experimental audio support
+                # Fall back to a simple local transcription approach
+                try:
+                    # Check if whisper is available via Ollama
+                    async with httpx.AsyncClient() as client:
+                        # Read audio file
+                        with open(audio_path, "rb") as f:
+                            audio_data = f.read()
+                        
+                        # Try speech recognition with SpeechRecognition library
+                        try:
+                            import speech_recognition as sr
+                            recognizer = sr.Recognizer()
+                            
+                            with sr.AudioFile(audio_path) as source:
+                                audio = recognizer.record(source)
+                            
+                            # Use Google's free speech recognition
+                            text = recognizer.recognize_google(audio)
+                            return text, text
+                        except ImportError:
+                            return "", "⚠️ Install speech_recognition: pip install SpeechRecognition"
+                        except Exception as e:
+                            return "", f"⚠️ Transcription error: {e}"
+                
+                except Exception as e:
+                    return "", f"⚠️ Audio processing error: {e}"
+            
+            except Exception as e:
+                return "", f"❌ Error: {str(e)}"
+        
+        async def send_voice_message(
+            transcription: str,
+            history: list[dict],
+        ) -> tuple[str, list[dict], str, str]:
+            """Send transcribed voice message as chat."""
+            if not transcription.strip():
+                return "", history, "", ""
+            
+            msg_result, new_history, tool_log = await chat(transcription, history)
+            return "", new_history, tool_log, ""
+        
+        # Activity log handlers
+        async def load_activity(platform_filter: str) -> tuple[list, str]:
+            """Load recent activity across all platforms."""
+            try:
+                from local_pigeon.core.conversation import AsyncConversationManager
+                
+                conv_manager = AsyncConversationManager(db_path=settings.storage.database)
+                
+                platforms = None if platform_filter == "All" else [platform_filter]
+                activity = await conv_manager.get_recent_activity(limit=50, platforms=platforms)
+                
+                # Format for display
+                rows = []
+                tool_usage = {}
+                
+                for item in activity:
+                    # Parse timestamp
+                    timestamp = item.get("timestamp", "")[:19] if item.get("timestamp") else ""
+                    
+                    # Track tool usage
+                    if item.get("tool_calls"):
+                        import json
+                        try:
+                            calls = json.loads(item["tool_calls"])
+                            for call in calls:
+                                tool_name = call.get("name", "unknown")
+                                tool_usage[tool_name] = tool_usage.get(tool_name, 0) + 1
+                        except Exception:
+                            pass
+                    
+                    # Platform emoji
+                    platform = item.get("platform", "")
+                    platform_display = {
+                        "web": "🌐 Web",
+                        "discord": "💬 Discord",
+                        "telegram": "📱 Telegram",
+                        "cli": "💻 CLI",
+                    }.get(platform, platform)
+                    
+                    rows.append([
+                        timestamp,
+                        platform_display,
+                        item.get("user_id", "")[:20],
+                        item.get("role", ""),
+                        item.get("content", "")[:100] + ("..." if len(item.get("content", "")) > 100 else ""),
+                    ])
+                
+                # Tool usage summary
+                if tool_usage:
+                    summary_lines = [f"• {name}: {count} calls" for name, count in sorted(tool_usage.items(), key=lambda x: -x[1])]
+                    summary = "\n".join(summary_lines)
+                else:
+                    summary = "No tool usage recorded yet."
+                
+                return rows, summary
+            
+            except Exception as e:
+                return [], f"Error loading activity: {e}"
+        
         # Integration handlers
-        def save_discord_settings(enabled: bool, token: str) -> str:
+        def generate_discord_invite(app_id: str) -> str:
+            """Generate Discord bot invite URL."""
+            if not app_id or not app_id.strip():
+                return "⚠️ Enter your Application ID above"
+            
+            app_id = app_id.strip()
+            if not app_id.isdigit():
+                return "❌ Invalid Application ID (should be numbers only)"
+            
+            # Permissions bitmap:
+            # - View Channels (1024)
+            # - Send Messages (2048)
+            # - Send Messages in Threads (274877906944)
+            # - Embed Links (16384)
+            # - Attach Files (32768)
+            # - Add Reactions (64)
+            # - Read Message History (65536)
+            # - Use External Emojis (262144)
+            # - Create Public Threads (34359738368)
+            permissions = 309237981248
+            
+            invite_url = f"https://discord.com/api/oauth2/authorize?client_id={app_id}&permissions={permissions}&scope=bot%20applications.commands"
+            return invite_url
+        
+        def save_discord_settings(enabled: bool, token: str, app_id: str) -> str:
             """Save Discord settings."""
             try:
                 settings.discord.enabled = enabled
@@ -886,7 +1153,9 @@ def create_app(
                 # Save to .env file
                 _save_env_var("DISCORD_ENABLED", str(enabled).lower())
                 _save_env_var("DISCORD_BOT_TOKEN", token)
-                return "✅ Discord settings saved! Restart to apply."
+                if app_id:
+                    _save_env_var("DISCORD_APP_ID", app_id)
+                return "✅ Discord settings saved! Click 'Save & Restart' to apply."
             except Exception as e:
                 return f"❌ Error: {str(e)}"
         
@@ -897,20 +1166,91 @@ def create_app(
                 settings.telegram.bot_token = token
                 _save_env_var("TELEGRAM_ENABLED", str(enabled).lower())
                 _save_env_var("TELEGRAM_BOT_TOKEN", token)
-                return "✅ Telegram settings saved! Restart to apply."
+                return "✅ Telegram settings saved! Click 'Save & Restart' to apply."
             except Exception as e:
                 return f"❌ Error: {str(e)}"
         
-        def save_google_settings(creds_path: str) -> str:
-            """Save Google settings."""
+        def save_google_settings(uploaded_file: str | None, creds_path: str, gmail_enabled: bool, calendar_enabled: bool, drive_enabled: bool) -> str:
+            """Save Google settings, handling uploaded file or manual path."""
             try:
-                if creds_path and not Path(creds_path).exists():
-                    return f"❌ File not found: {creds_path}"
-                settings.google.credentials_path = creds_path
-                _save_env_var("GOOGLE_CREDENTIALS_PATH", creds_path)
-                return "✅ Google settings saved!"
+                final_path = creds_path
+                
+                # If a file was uploaded, copy it to the data directory
+                if uploaded_file:
+                    data_dir = get_data_dir()
+                    dest_path = data_dir / "google_credentials.json"
+                    
+                    # Validate it's valid JSON with expected structure
+                    try:
+                        with open(uploaded_file, "r") as f:
+                            creds_data = json.load(f)
+                        # Check for expected OAuth credentials structure
+                        if "installed" not in creds_data and "web" not in creds_data:
+                            return "❌ Invalid credentials file. Expected OAuth client credentials from Google Cloud Console."
+                    except json.JSONDecodeError:
+                        return "❌ Invalid JSON file."
+                    
+                    # Copy file to data directory
+                    shutil.copy2(uploaded_file, dest_path)
+                    final_path = str(dest_path)
+                
+                if final_path and not Path(final_path).exists():
+                    return f"❌ File not found: {final_path}"
+                
+                # Save enabled flags
+                settings.google.gmail_enabled = gmail_enabled
+                settings.google.calendar_enabled = calendar_enabled
+                settings.google.drive_enabled = drive_enabled
+                _save_env_var("GOOGLE_GMAIL_ENABLED", str(gmail_enabled).lower())
+                _save_env_var("GOOGLE_CALENDAR_ENABLED", str(calendar_enabled).lower())
+                _save_env_var("GOOGLE_DRIVE_ENABLED", str(drive_enabled).lower())
+                
+                if final_path:
+                    settings.google.credentials_path = final_path
+                    _save_env_var("GOOGLE_CREDENTIALS_PATH", final_path)
+                    return f"✅ Google settings saved! Click 'Authorize with Google' to complete setup."
+                else:
+                    return "✅ Google service settings saved! Upload credentials.json to enable."
             except Exception as e:
                 return f"❌ Error: {str(e)}"
+        
+        def authorize_google() -> str:
+            """Trigger Google OAuth authorization flow."""
+            creds_path = settings.google.credentials_path
+            if not creds_path or not Path(creds_path).exists():
+                return "❌ Upload credentials.json first"
+            
+            try:
+                # Import here to avoid circular imports
+                from google_auth_oauthlib.flow import InstalledAppFlow
+                
+                # Combined scopes for all services (matching what tools use)
+                SCOPES = [
+                    # Gmail
+                    "https://www.googleapis.com/auth/gmail.readonly",
+                    "https://www.googleapis.com/auth/gmail.send",
+                    "https://www.googleapis.com/auth/gmail.modify",
+                    # Calendar
+                    "https://www.googleapis.com/auth/calendar",
+                    "https://www.googleapis.com/auth/calendar.events",
+                    # Drive
+                    "https://www.googleapis.com/auth/drive",
+                    "https://www.googleapis.com/auth/drive.file",
+                ]
+                
+                # Run OAuth flow
+                flow = InstalledAppFlow.from_client_secrets_file(creds_path, SCOPES)
+                creds = flow.run_local_server(port=0)
+                
+                # Save token
+                data_dir = get_data_dir()
+                token_path = data_dir / "google_token.json"
+                with open(token_path, "w") as token:
+                    token.write(creds.to_json())
+                
+                return "✅ Google authorized successfully! You can now use Gmail, Calendar, and Drive."
+            except Exception as e:
+                return f"❌ Authorization failed: {str(e)}"
         
         def save_stripe_settings(enabled: bool, api_key: str) -> str:
             """Save Stripe settings."""
@@ -922,6 +1262,80 @@ def create_app(
                 return "✅ Stripe settings saved!"
             except Exception as e:
                 return f"❌ Error: {str(e)}"
+        
+        def save_browser_settings(enabled: bool, headless: bool) -> str:
+            """Save browser automation settings."""
+            try:
+                settings.web.browser.enabled = enabled
+                settings.web.browser.headless = headless
+                _save_env_var("BROWSER_ENABLED", str(enabled).lower())
+                _save_env_var("BROWSER_HEADLESS", str(headless).lower())
+                
+                if enabled and headless:
+                    status = "✅ Enabled (headless)"
+                elif enabled:
+                    status = "✅ Enabled (GUI mode)"
+                else:
+                    status = "⚠️ Disabled"
+                
+                return status
+            except Exception as e:
+                return f"❌ Error: {str(e)}"
+        
+        def install_playwright() -> str:
+            """Install Playwright and Chromium browser."""
+            try:
+                result = subprocess.run(
+                    [sys.executable, "-m", "pip", "install", "playwright"],
+                    capture_output=True,
+                    text=True,
+                    timeout=120,
+                )
+                if result.returncode != 0:
+                    return f"❌ pip install failed: {result.stderr}"
+                
+                # Install Chromium
+                result = subprocess.run(
+                    [sys.executable, "-m", "playwright", "install", "chromium"],
+                    capture_output=True,
+                    text=True,
+                    timeout=300,
+                )
+                if result.returncode != 0:
+                    return f"❌ Browser install failed: {result.stderr}"
+                
+                return "✅ Playwright and Chromium installed successfully!"
+            except subprocess.TimeoutExpired:
+                return "❌ Installation timed out. Try running manually: pip install playwright && playwright install chromium"
+            except Exception as e:
+                return f"❌ Error: {str(e)}"
+        
+        def save_and_restart_discord(enabled: bool, token: str, app_id: str) -> str:
+            """Save Discord settings and restart the app."""
+            save_discord_settings(enabled, token, app_id)
+            return restart_app()
+        
+        def save_and_restart_telegram(enabled: bool, token: str) -> str:
+            """Save Telegram settings and restart the app."""
+            save_telegram_settings(enabled, token)
+            return restart_app()
+        
+        def restart_app() -> str:
+            """Restart the Local Pigeon application."""
+            import sys
+            import os
+            
+            # Schedule restart
+            def do_restart():
+                import time
+                time.sleep(0.5)  # Brief delay to let response go through
+                python = sys.executable
+                os.execl(python, python, *sys.argv)
+            
+            import threading
+            threading.Thread(target=do_restart, daemon=True).start()
+            
+            return "🔄 Restarting Local Pigeon... The page will refresh automatically."
         
         # Wire up events
         send_btn.click(
@@ -986,10 +1400,42 @@ def create_app(
             outputs=[memories_display, memory_status],
         )
         
+        # Voice input events
+        voice_input.change(
+            fn=transcribe_audio,
+            inputs=[voice_input],
+            outputs=[msg_input, voice_status],
+        )
+        
+        # Activity log events
+        refresh_activity_btn.click(
+            fn=load_activity,
+            inputs=[activity_platform_filter],
+            outputs=[activity_log, tool_usage_summary],
+        )
+        
+        activity_platform_filter.change(
+            fn=load_activity,
+            inputs=[activity_platform_filter],
+            outputs=[activity_log, tool_usage_summary],
+        )
+        
         # Integration events
+        generate_invite_btn.click(
+            fn=generate_discord_invite,
+            inputs=[discord_app_id],
+            outputs=[discord_invite_url],
+        )
+        
         save_discord_btn.click(
             fn=save_discord_settings,
-            inputs=[discord_enabled, discord_token],
+            inputs=[discord_enabled, discord_token, discord_app_id],
+            outputs=[discord_status],
+        )
+        
+        restart_discord_btn.click(
+            fn=save_and_restart_discord,
+            inputs=[discord_enabled, discord_token, discord_app_id],
             outputs=[discord_status],
         )
         
@@ -999,9 +1445,20 @@ def create_app(
             outputs=[telegram_status],
         )
         
+        restart_telegram_btn.click(
+            fn=save_and_restart_telegram,
+            inputs=[telegram_enabled, telegram_token],
+            outputs=[telegram_status],
+        )
+        
         save_google_btn.click(
             fn=save_google_settings,
-            inputs=[google_creds_path],
+            inputs=[google_creds_upload, google_creds_path, google_gmail_enabled, google_calendar_enabled, google_drive_enabled],
+            outputs=[google_status],
+        )
+        
+        authorize_google_btn.click(
+            fn=authorize_google,
             outputs=[google_status],
         )
         
@@ -1009,6 +1466,17 @@ def create_app(
             fn=save_stripe_settings,
             inputs=[stripe_enabled, stripe_key_input],
             outputs=[stripe_status],
+        )
+        
+        save_browser_btn.click(
+            fn=save_browser_settings,
+            inputs=[browser_enabled, browser_headless],
+            outputs=[browser_status],
+        )
+        
+        install_playwright_btn.click(
+            fn=install_playwright,
+            outputs=[browser_status],
         )
         
         # Load memories on startup

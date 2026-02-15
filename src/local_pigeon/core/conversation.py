@@ -489,3 +489,75 @@ class AsyncConversationManager:
                 (conversation_id,)
             )
             await db.commit()
+    
+    async def get_recent_activity(
+        self,
+        limit: int = 50,
+        platforms: list[str] | None = None,
+    ) -> list[dict]:
+        """
+        Get recent messages across all platforms for the activity log.
+        
+        Args:
+            limit: Maximum number of messages to return
+            platforms: Filter to specific platforms (None = all)
+            
+        Returns:
+            List of message dicts with platform, user_id, timestamp, etc.
+        """
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            
+            if platforms:
+                placeholders = ",".join("?" * len(platforms))
+                query = f"""
+                    SELECT 
+                        m.id,
+                        m.role,
+                        m.content,
+                        m.tool_calls,
+                        m.name,
+                        m.created_at,
+                        c.user_id,
+                        c.platform
+                    FROM messages m
+                    JOIN conversations c ON m.conversation_id = c.id
+                    WHERE c.platform IN ({placeholders})
+                    ORDER BY m.created_at DESC
+                    LIMIT ?
+                """
+                params = platforms + [limit]
+            else:
+                query = """
+                    SELECT 
+                        m.id,
+                        m.role,
+                        m.content,
+                        m.tool_calls,
+                        m.name,
+                        m.created_at,
+                        c.user_id,
+                        c.platform
+                    FROM messages m
+                    JOIN conversations c ON m.conversation_id = c.id
+                    ORDER BY m.created_at DESC
+                    LIMIT ?
+                """
+                params = [limit]
+            
+            async with db.execute(query, params) as cursor:
+                rows = await cursor.fetchall()
+        
+        return [
+            {
+                "id": row["id"],
+                "role": row["role"],
+                "content": row["content"][:200] + "..." if len(row["content"] or "") > 200 else row["content"],
+                "tool_calls": row["tool_calls"],
+                "name": row["name"],
+                "timestamp": row["created_at"],
+                "user_id": row["user_id"],
+                "platform": row["platform"],
+            }
+            for row in rows
+        ]
