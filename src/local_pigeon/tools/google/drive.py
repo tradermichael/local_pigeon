@@ -185,12 +185,17 @@ This is the user's own authorized Google Drive account."""
         """List files in a folder."""
         service = self._get_service()
         
-        query = f"'{folder_id}' in parents and trashed = false"
+        # Build query to exclude trashed files and auto-generated system files
+        if folder_id == "root":
+            # For root, get recent files owned by user (not shared from email)
+            query = "'root' in parents and trashed = false"
+        else:
+            query = f"'{folder_id}' in parents and trashed = false"
         
         results = service.files().list(
             q=query,
             pageSize=max_results,
-            fields="files(id, name, mimeType, size, modifiedTime)",
+            fields="files(id, name, mimeType, size, modifiedTime, owners)",
             orderBy="modifiedTime desc",
         ).execute()
         
@@ -199,19 +204,67 @@ This is the user's own authorized Google Drive account."""
         if not files:
             return "No files found in this folder."
         
-        output = "Files and folders:\n\n"
+        # Group by type for better readability
+        folders = []
+        documents = []
+        spreadsheets = []
+        other_files = []
+        
         for f in files:
-            icon = "📁" if f["mimeType"] == "application/vnd.google-apps.folder" else "📄"
-            size = f.get("size", "N/A")
-            if size != "N/A":
+            mime = f.get("mimeType", "")
+            if mime == "application/vnd.google-apps.folder":
+                folders.append(f)
+            elif mime in [
+                "application/vnd.google-apps.document",
+                "application/vnd.google-apps.presentation",
+            ]:
+                documents.append(f)
+            elif mime == "application/vnd.google-apps.spreadsheet":
+                spreadsheets.append(f)
+            else:
+                other_files.append(f)
+        
+        output = "**Your Google Drive Files:**\n\n"
+        
+        def format_file(f, icon):
+            size = f.get("size", "")
+            size_str = ""
+            if size:
                 size_kb = int(size) / 1024
-                size = f"{size_kb:.1f} KB"
-            
-            output += f"{icon} {f['name']}\n"
-            output += f"   ID: {f['id']}\n"
-            output += f"   Type: {f['mimeType']}\n"
-            output += f"   Size: {size}\n"
-            output += f"   Modified: {f.get('modifiedTime', 'Unknown')[:10]}\n\n"
+                size_str = f" ({size_kb:.1f} KB)"
+            modified = f.get("modifiedTime", "")[:10] if f.get("modifiedTime") else ""
+            return f"{icon} **{f['name']}**{size_str}\n   ID: `{f['id']}` | Modified: {modified}\n"
+        
+        if folders:
+            output += "📁 **Folders:**\n"
+            for f in folders[:5]:
+                output += format_file(f, "📁")
+            if len(folders) > 5:
+                output += f"   ... and {len(folders) - 5} more folders\n"
+            output += "\n"
+        
+        if documents:
+            output += "📝 **Documents:**\n"
+            for f in documents[:5]:
+                output += format_file(f, "📝")
+            if len(documents) > 5:
+                output += f"   ... and {len(documents) - 5} more documents\n"
+            output += "\n"
+        
+        if spreadsheets:
+            output += "📊 **Spreadsheets:**\n"
+            for f in spreadsheets[:5]:
+                output += format_file(f, "📊")
+            if len(spreadsheets) > 5:
+                output += f"   ... and {len(spreadsheets) - 5} more spreadsheets\n"
+            output += "\n"
+        
+        if other_files:
+            output += "📄 **Other Files:**\n"
+            for f in other_files[:5]:
+                output += format_file(f, "📄")
+            if len(other_files) > 5:
+                output += f"   ... and {len(other_files) - 5} more files\n"
         
         return output
     

@@ -50,7 +50,8 @@ Returns search results with titles, URLs, and snippets."""
     async def execute(self, user_id: str, **kwargs) -> str:
         """Execute a web search."""
         query = kwargs.get("query", "")
-        max_results = kwargs.get("max_results", self._max_results)
+        # Default to more results for better grounding accuracy
+        max_results = kwargs.get("max_results", max(self._max_results, 5))
         
         if not query:
             return "Error: No search query provided."

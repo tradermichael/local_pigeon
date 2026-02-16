@@ -73,14 +73,15 @@ class ViewFailureLogTool(Tool):
         # Format for LLM consumption
         result = self.failure_log.format_for_llm(failures)
         
-        # Add summary
-        summary = await self.failure_log.get_failure_summary()
-        result += f"\n### Summary\n"
-        result += f"- Unresolved issues: {summary['unresolved_count']}\n"
-        result += f"- Resolved issues: {summary['resolved_count']}\n"
-        
-        if summary['top_failing_tools']:
-            result += f"- Most problematic tools: {', '.join(t['tool'] for t in summary['top_failing_tools'])}\n"
+        # Add summary (only if not filtering by tool)
+        if not tool_filter:
+            summary = await self.failure_log.get_failure_summary()
+            result += f"\n### Summary\n"
+            result += f"- Unresolved issues: {summary['unresolved_count']}\n"
+            result += f"- Resolved issues: {summary['resolved_count']}\n"
+            
+            if summary['top_failing_tools']:
+                result += f"- Most problematic tools: {', '.join(t['tool'] for t in summary['top_failing_tools'])}\n"
         
         return result
 

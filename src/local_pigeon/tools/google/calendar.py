@@ -184,8 +184,9 @@ This is the user's own authorized calendar account."""
         time_min = now.isoformat() + "Z"
         time_max = (now + timedelta(days=days_ahead)).isoformat() + "Z"
         
+        # Only query the user's primary calendar (not "Events from Gmail" or other calendars)
         events_result = service.events().list(
-            calendarId=self._calendar_id,
+            calendarId="primary",  # Explicitly use primary calendar
             timeMin=time_min,
             timeMax=time_max,
             maxResults=20,
@@ -195,8 +196,28 @@ This is the user's own authorized calendar account."""
         
         events = events_result.get("items", [])
         
+        # Filter out auto-generated events from Gmail
+        real_events = []
+        for event in events:
+            # Skip events that are auto-generated from Gmail
+            # These have specific sources or creator patterns
+            source = event.get("source", {})
+            creator = event.get("creator", {})
+            
+            # Skip if it's from Gmail/automated source
+            if source.get("title") == "Gmail":
+                continue
+            if creator.get("email", "").endswith("calendar.google.com"):
+                continue
+            if event.get("eventType") == "fromGmail":
+                continue
+                
+            real_events.append(event)
+        
+        events = real_events
+        
         if not events:
-            return f"No upcoming events in the next {days_ahead} days."
+            return f"No upcoming events in the next {days_ahead} days (excluding auto-generated events from Gmail)."
         
         output = f"Upcoming events (next {days_ahead} days):\n\n"
         for event in events:

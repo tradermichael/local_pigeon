@@ -521,6 +521,93 @@ Timezone: {datetime.now().astimezone().tzinfo}
         
         return base_prompt
     
+    async def _preflight_grounding(
+        self,
+        user_message: str,
+        stream_callback: Callable[[str], None] | None = None,
+        status_callback: Callable[[StatusEvent], None] | None = None,
+    ) -> str:
+        """
+        Check if query needs factual grounding and pre-fetch results if so.
+        
+        This ensures the model gets accurate, up-to-date information for
+        factual questions rather than relying on (potentially outdated) training data.
+        
+        Args:
+            user_message: The user's question
+            stream_callback: Optional callback for status updates
+            status_callback: Optional callback for status events
+            
+        Returns:
+            Grounding context string to inject into system prompt, or empty string
+        """
+        from local_pigeon.core.grounding import GroundingClassifier
+        
+        # Two-stage classification: fast patterns first, then LLM if uncertain
+        classifier = GroundingClassifier(llm_client=self.llm)
+        
+        # Try fast classification first
+        fast_result = classifier.classify_fast(user_message)
+        
+        # If high confidence, use fast result; otherwise use LLM classification
+        if fast_result.confidence >= 0.7:
+            result = fast_result
+            classification_method = "pattern"
+        else:
+            # Use LLM for uncertain cases
+            if stream_callback:
+                await call_callback(stream_callback, f"🤔 Uncertain query ({fast_result.confidence:.0%}), using LLM classifier...\n")
+            result = await classifier.classify(user_message, use_llm=True)
+            classification_method = "LLM"
+        
+        # Always show classification in stream so user knows what happened
+        if stream_callback:
+            grounding_type = "FACTUAL" if result.needs_grounding else "NON-FACTUAL"
+            await call_callback(stream_callback, f"📊 Classification [{classification_method}]: {grounding_type} (confidence: {result.confidence:.0%}, reason: {result.reason})\n")
+        
+        # Only proceed if we're confident grounding is needed
+        if not result.needs_grounding or result.confidence < 0.7:
+            return ""
+        
+        # Get web_search tool
+        web_search = self.tools.get("web_search")
+        if not web_search:
+            return ""
+        
+        # Notify user we're doing a pre-search
+        if status_callback:
+            await call_callback(status_callback, StatusEvent(
+                type=StatusType.THINKING,
+                message="🔍 Pre-fetching factual information...",
+            ))
+        
+        # Execute search
+        search_query = result.suggested_query or user_message
+        try:
+            search_result = await web_search.execute(query=search_query, num_results=5)
+            
+            if search_result and "Error" not in search_result:
+                # Format as context for the model
+                grounding_context = f"""
+### FACTUAL GROUNDING (Pre-fetched search results)
+The following information was retrieved from the web for accuracy.
+TRUST THESE RESULTS over your training data. Your training data may be outdated.
+
+{search_result}
+
+IMPORTANT: Base your answer on THESE SEARCH RESULTS, not your training data.
+If the search says a different person/fact than what you "know", THE SEARCH IS CORRECT.
+"""
+                if stream_callback:
+                    await call_callback(stream_callback, "🔍 Found relevant information\n")
+                return grounding_context
+        except Exception as e:
+            # Log but don't fail - model can still use tools if needed
+            if stream_callback:
+                await call_callback(stream_callback, f"⚠️ Pre-search failed: {e}\n")
+        
+        return ""
+    
     async def chat(
         self,
         user_message: str,
@@ -545,8 +632,13 @@ Timezone: {datetime.now().astimezone().tzinfo}
         Returns:
             The assistant's response
         """
+        # Track if we need to restore the model after vision processing
+        original_model = None
+        is_vision_request = False
+        
         # If images are provided, check if we need to switch to a vision model
         if images:
+            is_vision_request = True
             if not self.llm.is_vision_model():
                 # Try to find a vision model (prefer user's configured choice)
                 preferred_vision = self.settings.ollama.vision_model or None
@@ -563,6 +655,7 @@ Timezone: {datetime.now().astimezone().tzinfo}
                         stream_callback("⚠️ No vision model available. Install one with: `ollama pull llava`\\n\\n")
                     # Continue without images
                     images = None
+                    is_vision_request = False
         
         # Get or create conversation
         conversation_id = await self.conversations.get_or_create_conversation(
@@ -576,6 +669,20 @@ Timezone: {datetime.now().astimezone().tzinfo}
         
         # Get personalized system prompt with user memories and relevant skills
         system_prompt = await self.get_personalized_system_prompt(user_id, user_message)
+        
+        # Grounding preflight: check if query needs factual grounding
+        # If so, pre-fetch search results and inject into context
+        grounding_context = ""
+        if self.settings.agent.tools_enabled and not is_vision_request:
+            grounding_context = await self._preflight_grounding(
+                user_message, 
+                stream_callback, 
+                status_callback
+            )
+        
+        # Add grounding context to system prompt if available
+        if grounding_context:
+            system_prompt += f"\n\n{grounding_context}"
         
         # Build messages for the LLM
         # Include images in the user message if provided
@@ -594,20 +701,26 @@ Timezone: {datetime.now().astimezone().tzinfo}
         )
         
         # Get tool definitions
+        # Skip tools for vision requests as most vision models don't support them well
         tools = None
-        if self.settings.agent.tools_enabled:
+        if self.settings.agent.tools_enabled and not is_vision_request:
             tools = self.tools.get_tool_definitions()
         
-        # Run the agentic loop
-        response, tool_calls_made = await self._agentic_loop(
-            messages=messages,
-            tools=tools,
-            user_id=user_id,
-            platform=platform,
-            stream_callback=stream_callback,
-            status_callback=status_callback,
-            max_iterations=self.settings.agent.max_tool_iterations,
-        )
+        try:
+            # Run the agentic loop
+            response, tool_calls_made = await self._agentic_loop(
+                messages=messages,
+                tools=tools,
+                user_id=user_id,
+                platform=platform,
+                stream_callback=stream_callback,
+                status_callback=status_callback,
+                max_iterations=self.settings.agent.max_tool_iterations,
+            )
+        finally:
+            # Restore original model if we switched for vision
+            if original_model:
+                self.llm.model = original_model
         
         # RALPH Loop: Check if model should have used tools but didn't
         # This allows the agent to learn from failures and improve over time
@@ -662,6 +775,13 @@ Timezone: {datetime.now().astimezone().tzinfo}
         """
         iteration = 0
         tool_results_this_session = []
+        recent_tool_calls: list[tuple[str, str]] = []  # Track (name, args_hash) for dedup
+        
+        def get_tool_signature(name: str, args: dict) -> tuple[str, str]:
+            """Get a signature for a tool call for deduplication."""
+            import json
+            args_str = json.dumps(args, sort_keys=True) if args else ""
+            return (name, args_str)
         
         # Helper to emit status events
         async def emit_status(type: StatusType, message: str, details: dict | None = None):
@@ -706,11 +826,16 @@ Timezone: {datetime.now().astimezone().tzinfo}
             # Check if model is done (no tool calls)
             if not response.tool_calls:
                 # Model provided a final answer
+                await emit_status(
+                    StatusType.THINKING,
+                    f"Model response (no tools): {(response.content or '')[:100]}...",
+                    {"has_tool_calls": False, "content_length": len(response.content or "")}
+                )
                 final_response = response.content
                 
                 # Handle empty response with retries and model fallback
                 if not final_response or not final_response.strip():
-                    final_response = await self._handle_empty_response(
+                    retry_result = await self._handle_empty_response(
                         messages=messages,
                         tools=tools,
                         iteration=iteration,
@@ -718,14 +843,27 @@ Timezone: {datetime.now().astimezone().tzinfo}
                         emit_status=emit_status,
                     )
                     
-                    # If still no response, continue loop in case model wants tools
-                    if final_response is None:
+                    # Check if result is a Response object (model wants to use tools)
+                    if hasattr(retry_result, 'tool_calls') and retry_result.tool_calls:
+                        # Model returned tool_calls during retry - process them normally
+                        response = retry_result
+                        # Fall through to tool processing below (outside this if block)
+                    elif retry_result:
+                        # Got a text response
+                        final_response = retry_result
+                    else:
+                        # Still nothing, continue to next iteration
                         continue
-                
+            
+            # If model has tool_calls (original or from retry), process them
+            if response.tool_calls:
+                pass  # Fall through to tool processing below
+            else:
+                # No tool_calls - return the final response
                 # Final safety net - never return empty
                 if not final_response or not final_response.strip():
                     final_response = "I received your message but couldn't generate a response. Please try rephrasing or try a different model."
-                
+                    
                 # If we executed tools, prepend a brief status
                 if tool_results_this_session:
                     await emit_status(
@@ -739,8 +877,41 @@ Timezone: {datetime.now().astimezone().tzinfo}
                 
                 return final_response, len(tool_results_this_session) > 0
             
-            # Model wants to use tools - add assistant message
+            # Model wants to use tools - check for duplicates BEFORE adding to conversation
+            current_signatures = [
+                get_tool_signature(tc.name, tc.arguments)
+                for tc in response.tool_calls
+            ]
+            
+            # If all tool calls in this batch are duplicates from recent calls, nudge the model
+            duplicates = [sig for sig in current_signatures if sig in recent_tool_calls]
+            if duplicates and len(duplicates) == len(current_signatures):
+                # All calls are duplicates - don't execute, provide synthetic results
+                await emit_status(
+                    StatusType.ITERATION,
+                    "Detected repeated tool calls, nudging model to provide answer...",
+                    {"duplicates": [d[0] for d in duplicates]}
+                )
+                
+                # Add the assistant message (required for valid conversation flow)
+                messages.append(response)
+                
+                # Add synthetic tool results telling model it already has the data
+                for tc in response.tool_calls:
+                    messages.append(Message(
+                        role="tool",
+                        content=f"You already called {tc.name} with these arguments and received results above. "
+                                "Please review the previous results and provide your final answer to the user.",
+                        tool_call_id=tc.id,
+                        name=tc.name,
+                    ))
+                
+                continue  # Let model reconsider with the nudge
+            
+            # Not duplicates - add assistant message and track signatures
             messages.append(response)
+            recent_tool_calls.extend(current_signatures)
+            recent_tool_calls = recent_tool_calls[-10:]
             
             # Execute each tool call
             for tool_call in response.tool_calls:
@@ -875,12 +1046,15 @@ Timezone: {datetime.now().astimezone().tzinfo}
             # Continue loop - model will process tool results and decide next step
         
         # Max iterations reached - provide a helpful response
+        # Debug: show what happened in each iteration
+        debug_info = f"(Tools available: {len(tools) if tools else 0})"
         return (
             f"I've completed {iteration} steps using tools but need more iterations to finish. "
+            f"{debug_info}\n"
             "Here's what I've done so far:\n"
-            + "\n".join(f"- {r.name}: {'✓' if r.success else '✗'}" for r in tool_results_this_session)
+            + ("\n".join(f"- {r.name}: {'✓' if r.success else '✗'}" for r in tool_results_this_session) or "- (no tools executed)")
             + "\n\nPlease let me know if you'd like me to continue.",
-            True,  # Tools were called
+            len(tool_results_this_session) > 0,  # Only True if tools were actually called
         )
     
     async def _handle_empty_response(
@@ -926,9 +1100,9 @@ Timezone: {datetime.now().astimezone().tzinfo}
             )
             
             if response.tool_calls:
-                # Model now wants to use tools - return None to continue loop
-                messages.append(response)
-                return None
+                # Model now wants to use tools - return the response
+                # so the main loop can process the tool calls
+                return response
             
             if response.content and response.content.strip():
                 return response.content
@@ -966,9 +1140,8 @@ Timezone: {datetime.now().astimezone().tzinfo}
                 )
                 
                 if response.tool_calls:
-                    # Model wants to use tools
-                    messages.append(response)
-                    return None
+                    # Model wants to use tools - return the response
+                    return response
                 
                 if response.content and response.content.strip():
                     # Success! Keep using this model for the rest of this conversation

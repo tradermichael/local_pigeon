@@ -53,10 +53,20 @@ def create_app(
     # Import here to avoid circular imports
     from local_pigeon.core.agent import LocalPigeonAgent
     from local_pigeon.storage.memory import AsyncMemoryManager, MemoryType
+    from local_pigeon.config import get_data_dir
+    from pathlib import Path
+    
+    # Build correct database path (same logic as agent)
+    data_dir = get_data_dir()
+    db_filename = settings.storage.database
+    if Path(db_filename).is_absolute():
+        db_path = db_filename
+    else:
+        db_path = str(data_dir / db_filename)
     
     # Create agent instance
     agent: LocalPigeonAgent | None = None
-    memory_manager = AsyncMemoryManager(db_path=settings.storage.database)
+    memory_manager = AsyncMemoryManager(db_path=db_path)
     
     async def get_agent() -> LocalPigeonAgent:
         nonlocal agent
@@ -65,9 +75,9 @@ def create_app(
             await agent.initialize()
         return agent
     
-    # Modern dark theme CSS
+    # Modern theme CSS with light/dark mode support
     gemini_css = """
-    /* Root variables for dark theming */
+    /* Root variables for dark theming (default) */
     :root {
         --primary-color: #8ab4f8;
         --primary-hover: #aecbfa;
@@ -87,6 +97,88 @@ def create_app(
         --accent-blue: #3b82f6;
         --accent-green: #22c55e;
         --accent-purple: #a855f7;
+        --user-msg-bg: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+        --user-msg-text: white;
+        --bot-msg-bg: var(--bg-tertiary);
+        --bot-msg-text: var(--text-primary);
+        --input-bg: var(--bg-tertiary);
+        --focus-ring: rgba(138, 180, 248, 0.3);
+    }
+    
+    /* Light mode overrides */
+    @media (prefers-color-scheme: light) {
+        :root {
+            --primary-color: #2563eb;
+            --primary-hover: #1d4ed8;
+            --bg-primary: #f8fafc;
+            --bg-secondary: #ffffff;
+            --bg-tertiary: #f1f5f9;
+            --bg-chat: #ffffff;
+            --text-primary: #1e293b;
+            --text-secondary: #475569;
+            --text-muted: #64748b;
+            --border-color: #e2e8f0;
+            --shadow-sm: 0 1px 3px rgba(0,0,0,0.08);
+            --shadow-md: 0 4px 12px rgba(0,0,0,0.12);
+            --user-msg-bg: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+            --user-msg-text: white;
+            --bot-msg-bg: #f1f5f9;
+            --bot-msg-text: #1e293b;
+            --input-bg: #ffffff;
+            --focus-ring: rgba(37, 99, 235, 0.25);
+            --accent-blue: #3b82f6;
+        }
+        
+        /* Light mode - dropdown and input fixes */
+        .gradio-container input,
+        .gradio-container select,
+        .gradio-container textarea,
+        .gradio-container .wrap input,
+        .gradio-container .wrap select {
+            background-color: #ffffff !important;
+            color: #1e293b !important;
+            border-color: #e2e8f0 !important;
+        }
+        
+        /* Dropdown menu items in light mode */
+        .gradio-container ul[role="listbox"],
+        .gradio-container .options,
+        .gradio-container .dropdown-content {
+            background-color: #ffffff !important;
+            border-color: #e2e8f0 !important;
+        }
+        
+        .gradio-container ul[role="listbox"] li,
+        .gradio-container .options li,
+        .gradio-container .option {
+            color: #1e293b !important;
+            background-color: #ffffff !important;
+        }
+        
+        .gradio-container ul[role="listbox"] li:hover,
+        .gradio-container .options li:hover,
+        .gradio-container .option:hover {
+            background-color: #f1f5f9 !important;
+        }
+        
+        /* Selected item in dropdown */
+        .gradio-container .wrap .selected,
+        .gradio-container .dropdown .selected,
+        .gradio-container input[type="text"] {
+            color: #1e293b !important;
+            background-color: #ffffff !important;
+        }
+        
+        /* Button text in light mode */
+        .gradio-container button:not(.primary) {
+            color: #1e293b !important;
+        }
+        
+        /* Labels and text */
+        .gradio-container label span,
+        .gradio-container .label-wrap span {
+            color: #1e293b !important;
+        }
     }
     
     /* Global text color */
@@ -221,16 +313,16 @@ def create_app(
     
     /* User messages - right side, accent color */
     .chatbot .message-row.user-row .message {
-        background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%) !important;
-        color: white !important;
+        background: var(--user-msg-bg) !important;
+        color: var(--user-msg-text) !important;
         border-radius: var(--radius-md) var(--radius-md) 4px var(--radius-md) !important;
         border: none !important;
     }
     
-    /* Assistant messages - left side, dark surface */
+    /* Assistant messages - left side */
     .chatbot .message-row.bot-row .message {
-        background: var(--bg-tertiary) !important;
-        color: var(--text-primary) !important;
+        background: var(--bot-msg-bg) !important;
+        color: var(--bot-msg-text) !important;
         border: 1px solid var(--border-color) !important;
         border-radius: var(--radius-md) var(--radius-md) var(--radius-md) 4px !important;
     }
@@ -266,14 +358,14 @@ def create_app(
         border: 1px solid var(--border-color) !important;
         padding: 12px 16px !important;
         font-size: 14px !important;
-        background: var(--bg-tertiary) !important;
+        background: var(--input-bg) !important;
         color: var(--text-primary) !important;
         transition: border-color 0.2s, box-shadow 0.2s !important;
     }
     
     textarea:focus, input:focus {
         border-color: var(--primary-color) !important;
-        box-shadow: 0 0 0 2px rgba(138, 180, 248, 0.2) !important;
+        box-shadow: 0 0 0 2px var(--focus-ring) !important;
         outline: none !important;
     }
     
@@ -386,14 +478,14 @@ def create_app(
     .dropdown, select {
         border-radius: var(--radius-sm) !important;
         border: 1px solid var(--border-color) !important;
-        background: var(--bg-tertiary) !important;
+        background: var(--input-bg) !important;
         color: var(--text-primary) !important;
     }
     
     /* Dropdown options */
     .dropdown option, select option, .options, .option {
         color: var(--text-primary) !important;
-        background: var(--bg-tertiary) !important;
+        background: var(--input-bg) !important;
     }
     
     /* DataTable */
@@ -460,6 +552,90 @@ def create_app(
         color: var(--text-muted) !important;
         font-size: 12px !important;
     }
+    
+    /* Microphone button styling */
+    .mic-button {
+        width: 50px !important;
+        min-width: 50px !important;
+        max-width: 50px !important;
+        height: 50px !important;
+        border-radius: 50% !important;
+        background: var(--primary-color) !important;
+        border: none !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        font-size: 20px !important;
+        cursor: pointer !important;
+        transition: all 0.2s ease !important;
+    }
+    
+    .mic-button:hover {
+        background: var(--primary-hover) !important;
+        transform: scale(1.05) !important;
+    }
+    
+    .mic-button.recording {
+        background: #ef4444 !important;
+        animation: mic-pulse 1.5s infinite !important;
+    }
+    
+    @keyframes mic-pulse {
+        0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
+        70% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
+        100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+    }
+    
+    /* Input row styling */
+    .chat-input-row {
+        display: flex !important;
+        gap: 8px !important;
+        align-items: flex-end !important;
+    }
+    
+    /* Voice recording popup */
+    .voice-recording-popup {
+        background: var(--bg-secondary) !important;
+        border: 1px solid var(--border-color) !important;
+        border-radius: var(--radius-lg) !important;
+        padding: 16px !important;
+        margin-top: 12px !important;
+        box-shadow: var(--shadow-md) !important;
+    }
+    
+    .voice-recording-popup h3 {
+        margin: 0 0 12px 0 !important;
+        text-align: center !important;
+    }
+    
+    .voice-recording-popup .audio-container {
+        margin-bottom: 12px !important;
+    }
+    """
+    
+    # JavaScript for Ctrl+Enter to send
+    ctrl_enter_js = """
+    () => {
+        // Wait for DOM to be ready
+        setTimeout(() => {
+            const textareas = document.querySelectorAll('textarea');
+            textareas.forEach(textarea => {
+                // Remove existing listener if any
+                textarea.removeEventListener('keydown', textarea._ctrlEnterHandler);
+                
+                // Add Ctrl+Enter handler
+                textarea._ctrlEnterHandler = (e) => {
+                    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                        e.preventDefault();
+                        // Find and click the send button
+                        const sendBtn = document.querySelector('button.primary');
+                        if (sendBtn) sendBtn.click();
+                    }
+                };
+                textarea.addEventListener('keydown', textarea._ctrlEnterHandler);
+            });
+        }, 500);
+    }
     """
     
     # Create theme if available
@@ -477,6 +653,7 @@ def create_app(
         app._lp_css = gemini_css
         # State
         conversation_state = gr.State([])
+        settings_open = gr.State(False)  # Track settings accordion state
         
         # Header with logo and version
         gr.Markdown(
@@ -517,28 +694,24 @@ def create_app(
                     editable=None,
                 )
                 
-                with gr.Row():
+                with gr.Row(elem_classes="chat-input-row"):
                     msg_input = gr.Textbox(
                         label="Message",
-                        placeholder="Type your message here...",
+                        placeholder="Type your message... (Ctrl+Enter to send)",
                         lines=2,
                         scale=4,
                         show_label=False,
                     )
                     send_btn = gr.Button("Send", variant="primary", scale=1)
                 
-                with gr.Row():
+                # Voice input below text box
+                with gr.Accordion("🎤 Voice Input", open=False):
                     voice_input = gr.Audio(
                         sources=["microphone"],
                         type="filepath",
-                        label="🎤",
+                        label="Click to record, then stop when done",
                         show_label=True,
-                        scale=1,
-                        min_width=60,
-                        waveform_options=gr.WaveformOptions(
-                            waveform_color="#3b82f6",
-                            waveform_progress_color="#2563eb",
-                        ),
+                        interactive=True,
                     )
                 
                 # Settings popup (hidden by default)
@@ -854,20 +1027,75 @@ def create_app(
                             )
                 
                 with gr.Accordion("📁 Data Storage", open=False):
-                    data_dir = ensure_data_dir()  # Ensure directory exists
+                    from local_pigeon.config import get_physical_data_dir, get_python_environment_info
+                    
+                    # Get Python environment info for display
+                    env_info = get_python_environment_info()
+                    env_type_display = {
+                        "windows_store": "🪟 Windows Store Python",
+                        "conda": "🐍 Conda/Anaconda",
+                        "virtualenv": "📦 Virtual Environment",
+                        "pyenv": "🔧 pyenv",
+                        "homebrew": "🍺 Homebrew Python",
+                        "system": "💻 System Python",
+                    }.get(env_info["type"], f"Python ({env_info['type']})")
+                    
+                    # Get the actual physical path (resolves virtualization)
+                    physical_data_dir = get_physical_data_dir()
+                    logical_data_dir = ensure_data_dir()
+                    
+                    # Check which files actually exist using physical path
+                    from pathlib import Path
+                    data_path = Path(physical_data_dir)
+                    db_exists = (data_path / "local_pigeon.db").exists()
+                    token_exists = (data_path / "google_token.json").exists()
+                    env_exists = (data_path / ".env").exists()
+                    
+                    # Build list of what exists
+                    file_list = []
+                    if db_exists:
+                        file_list.append("- ✅ Conversations and chat history (`local_pigeon.db`)")
+                    else:
+                        file_list.append("- ⬜ Conversations and chat history (`local_pigeon.db`) - *not created yet*")
+                    
+                    if db_exists:  # Memories are in same db
+                        file_list.append("- ✅ Memories and preferences")
+                    else:
+                        file_list.append("- ⬜ Memories and preferences - *not created yet*")
+                    
+                    if token_exists:
+                        file_list.append("- ✅ Google OAuth tokens (`google_token.json`)")
+                    else:
+                        file_list.append("- ⬜ Google OAuth tokens (`google_token.json`) - *not connected*")
+                    
+                    if env_exists:
+                        file_list.append("- ✅ Settings and configuration (`.env`)")
+                    else:
+                        file_list.append("- ⬜ Settings and configuration (`.env`) - *not created yet*")
+                    
+                    files_text = "\n".join(file_list)
+                    
+                    # Note about virtualization if different paths
+                    virtualization_note = ""
+                    is_virtualized = env_info["virtualized"] == "True"
+                    if is_virtualized and str(physical_data_dir) != str(logical_data_dir):
+                        virtualization_note = f"""
+                        > ⚠️ **Sandboxed Storage:** Your Python installation uses virtualized file storage.  
+                        > The app sees `{logical_data_dir}` but files are physically at the location below.
+                        """
+                    
                     gr.Markdown(
                         f"""
                         ### Your Data Location
                         
+                        **Environment:** {env_type_display} {env_info['version']}
+                        
                         All your data is stored locally on your device at:
                         
-                        📂 **`{data_dir}`**
-                        
-                        This includes:
-                        - 💬 Conversations and chat history (`local_pigeon.db`)
-                        - 🧠 Memories and preferences
-                        - 🔑 Google OAuth tokens (`google_token.json`)
-                        - ⚙️ Settings and configuration (`.env`)
+                        📂 **`{physical_data_dir}`**
+                        {virtualization_note}
+                        **Files:**
+                        {files_text}
                         """
                     )
                     with gr.Row():
@@ -1609,11 +1837,17 @@ def create_app(
                     status_callback=status_callback,
                 )
                 
-                # Build final content with status log if tools were used
-                if status_lines:
+                # Build final content with status log if tools were actually used
+                tool_call_count = len([l for l in status_lines if '🔧' in l])
+                
+                # Safety guard - ensure we have a response
+                if not response or not response.strip():
+                    response = "I received your message but couldn't generate a response. Please try again."
+                
+                if tool_call_count > 0:
                     # Format status as a collapsible details block
                     status_log = "\n".join(status_lines)
-                    final_content = f"<details><summary>🔍 Agent activity ({len([l for l in status_lines if '🔧' in l])} tool calls)</summary>\n\n```\n{status_log}\n```\n\n</details>\n\n{response}"
+                    final_content = f"<details><summary>🔍 Agent activity ({tool_call_count} tool calls)</summary>\n\n```\n{status_log}\n```\n\n</details>\n\n{response}"
                 else:
                     final_content = response
                 
@@ -2053,7 +2287,9 @@ def create_app(
         def open_data_folder() -> str:
             """Open the data folder in file explorer."""
             try:
-                data_dir = get_data_dir()
+                from local_pigeon.config import get_physical_data_dir
+                # Use physical path to open the actual folder (resolves Windows Store virtualization)
+                data_dir = get_physical_data_dir()
                 if sys.platform == "win32":
                     os.startfile(data_dir)
                 elif sys.platform == "darwin":
@@ -2202,9 +2438,20 @@ def create_app(
             """Load recent activity across all platforms."""
             try:
                 from local_pigeon.core.conversation import AsyncConversationManager
+                from local_pigeon.config import get_data_dir
+                from pathlib import Path
+                from datetime import datetime, timezone
                 import json
                 
-                conv_manager = AsyncConversationManager(db_path=settings.storage.database)
+                # Build correct database path (same logic as agent)
+                data_dir = get_data_dir()
+                db_filename = settings.storage.database
+                if Path(db_filename).is_absolute():
+                    db_path = db_filename
+                else:
+                    db_path = str(data_dir / db_filename)
+                
+                conv_manager = AsyncConversationManager(db_path=db_path)
                 
                 platforms = None if platform_filter == "All" else [platform_filter]
                 activity = await conv_manager.get_recent_activity(limit=50, platforms=platforms)
@@ -2214,9 +2461,24 @@ def create_app(
                 tool_usage = {}
                 recent_tool_calls = []
                 
+                def convert_to_local_time(timestamp_str: str) -> str:
+                    """Convert UTC timestamp to local time."""
+                    if not timestamp_str:
+                        return ""
+                    try:
+                        # Parse the UTC timestamp (stored as ISO format)
+                        dt_utc = datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
+                        if dt_utc.tzinfo is None:
+                            dt_utc = dt_utc.replace(tzinfo=timezone.utc)
+                        # Convert to local time
+                        dt_local = dt_utc.astimezone()
+                        return dt_local.strftime("%Y-%m-%d %H:%M:%S")
+                    except Exception:
+                        return timestamp_str[:19] if len(timestamp_str) >= 19 else timestamp_str
+                
                 for item in activity:
-                    # Parse timestamp
-                    timestamp = item.get("timestamp", "")[:19] if item.get("timestamp") else ""
+                    # Parse and convert timestamp to local time
+                    timestamp = convert_to_local_time(item.get("timestamp", ""))
                     
                     # Track tool usage and recent calls
                     if item.get("tool_calls"):
@@ -2722,6 +2984,17 @@ def create_app(
             outputs=[chat_model_dropdown],
         )
         
+        # Settings button toggles accordion
+        def toggle_settings(current_state):
+            new_state = not current_state
+            return new_state, gr.update(open=new_state)
+        
+        chat_settings_btn.click(
+            fn=toggle_settings,
+            inputs=[settings_open],
+            outputs=[settings_open, chat_settings_accordion],
+        )
+        
         save_settings_btn.click(
             fn=save_settings_handler,
             inputs=[
@@ -3004,6 +3277,12 @@ def create_app(
         app.load(
             fn=load_memories,
             outputs=[memories_display],
+        )
+        
+        # Add Ctrl+Enter keyboard shortcut for sending messages
+        app.load(
+            fn=None,
+            js=ctrl_enter_js,
         )
         
         # Cleanup on close

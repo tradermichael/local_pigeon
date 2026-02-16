@@ -292,12 +292,14 @@ class OllamaClient:
     _models_without_native_tools: set[str] = set()
     
     # Model families that should always use prompt-based tools
+    # Note: qwen3 and gemma3 have good native tool support, so they're NOT included
+    # We only match exact base names to avoid matching substrings incorrectly
     PROMPT_TOOL_MODEL_FAMILIES = {
-        "deepseek-r1", "deepseek-r1-distill",  # Reasoning models
-        "qwen", "qwen2", "qwen2.5", "qwq",  # Qwen models - native tools unreliable
-        "phi", "phi3", "phi4",  # Microsoft Phi models
-        "gemma", "gemma2", "gemma3",  # Google Gemma
-        "tinyllama", "orca-mini",  # Smaller models
+        "deepseek-r1", "deepseek-r1-distill",  # Reasoning models - always need prompt tools
+        "qwq",  # QwQ reasoning model - needs prompt tools
+        "phi", "phi3", "phi4",  # Microsoft Phi models - native unreliable
+        "gemma", "gemma2",  # Gemma 1/2 - native unreliable (gemma3 works natively)
+        "tinyllama", "orca-mini",  # Smaller models - no native support
     }
     
     # Cache for model capabilities
@@ -309,6 +311,7 @@ class OllamaClient:
         "moondream", "moondream2",
         "llama3.2-vision", "minicpm-v",
         "cogvlm", "yi-vl", "nanollava",
+        "gemma3",  # gemma3 models include vision support
     }
     
     def __init__(
@@ -324,14 +327,26 @@ class OllamaClient:
         self.temperature = temperature
         self.context_length = context_length
         self.force_prompt_tools = force_prompt_tools
+        self._closed = False
         
         self._sync_client = ollama.Client(host=host)
         self._async_client = AsyncClient(host=host)
     
+    def _ensure_client(self) -> None:
+        """Ensure the async client is ready, recreating if closed."""
+        if self._closed:
+            logger.debug("Recreating closed async client")
+            self._async_client = AsyncClient(host=self.host)
+            self._closed = False
+    
     async def close(self) -> None:
         """Close the async client session."""
         if hasattr(self._async_client, '_client') and self._async_client._client:
-            await self._async_client._client.aclose()
+            try:
+                await self._async_client._client.aclose()
+            except Exception:
+                pass  # Already closed
+        self._closed = True
     
     def _should_use_prompt_tools(self, model: str) -> bool:
         """Check if we should use prompt-based tool calling for this model."""
@@ -340,8 +355,16 @@ class OllamaClient:
         
         # Check if model family should use prompt-based tools
         base_name = self._get_model_base_name(model)
+        
+        # Models with good native tool support - skip prompt tools for these
+        NATIVE_TOOL_MODELS = {"qwen3", "qwen2.5", "gemma3", "llama3", "llama3.1", "llama3.2", "mistral"}
+        for native in NATIVE_TOOL_MODELS:
+            if base_name == native or base_name.startswith(native + "-"):
+                return False
+        
+        # Check against prompt tool model families
         for family in self.PROMPT_TOOL_MODEL_FAMILIES:
-            if base_name.startswith(family) or family in base_name:
+            if base_name == family or base_name.startswith(family):
                 return True
         
         return False
@@ -426,7 +449,21 @@ Based on this tool result, please continue with your task. Either use another to
     def list_models(self) -> list[dict[str, Any]]:
         """List available models."""
         result = self._sync_client.list()
-        return result.get("models", [])
+        # Handle both old dict format and new typed object format
+        raw_models = result.get("models", []) if isinstance(result, dict) else getattr(result, "models", [])
+        models = []
+        for m in raw_models:
+            if isinstance(m, dict):
+                models.append(m)
+            else:
+                # Convert typed object to dict
+                models.append({
+                    "name": getattr(m, "model", getattr(m, "name", str(m))),
+                    "size": getattr(m, "size", 0),
+                    "modified_at": str(getattr(m, "modified_at", "")),
+                    "digest": getattr(m, "digest", ""),
+                })
+        return models
     
     def pull_model(self, model: str) -> None:
         """Pull a model from the Ollama registry."""
@@ -476,6 +513,7 @@ Based on this tool result, please continue with your task. Either use another to
         if check_model in self._model_capabilities_cache:
             return self._model_capabilities_cache[check_model]
         
+        self._ensure_client()
         capabilities = {
             "name": check_model,
             "vision": self.is_vision_model(check_model),
@@ -511,6 +549,7 @@ Based on this tool result, please continue with your task. Either use another to
         Returns:
             List of model dicts with name, vision, size, etc.
         """
+        self._ensure_client()
         models = []
         
         try:
@@ -622,6 +661,7 @@ Based on this tool result, please continue with your task. Either use another to
         Returns:
             The assistant's response message
         """
+        self._ensure_client()
         use_model = model or self.model
         
         # Log the request
@@ -726,6 +766,7 @@ Based on this tool result, please continue with your task. Either use another to
         Yields:
             Content chunks as they arrive
         """
+        self._ensure_client()
         ollama_messages = [m.to_ollama() for m in messages]
         ollama_tools = [t.to_ollama() for t in tools] if tools else None
         
@@ -771,6 +812,7 @@ Based on this tool result, please continue with your task. Either use another to
         Returns:
             The complete assistant message
         """
+        self._ensure_client()
         use_model = model or self.model
         use_prompt_tools = tools is not None and self._should_use_prompt_tools(use_model)
         
@@ -980,6 +1022,7 @@ Based on this tool result, please continue with your task. Either use another to
         Returns:
             Embedding vector
         """
+        self._ensure_client()
         response = await self._async_client.embed(
             model=model or self.model,
             input=text,

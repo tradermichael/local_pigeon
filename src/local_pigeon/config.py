@@ -61,6 +61,112 @@ def get_data_dir() -> Path:
     return path
 
 
+def get_python_environment_info() -> dict[str, str]:
+    """
+    Detect the Python environment type and return relevant information.
+    
+    Returns:
+        Dict with keys: 'type', 'version', 'executable', 'virtualized'
+    """
+    import sys
+    
+    exe = sys.executable
+    version = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
+    env_type = "system"
+    virtualized = False
+    
+    if platform.system() == "Windows":
+        if "WindowsApps" in exe:
+            env_type = "windows_store"
+            virtualized = True
+        elif "anaconda" in exe.lower() or "conda" in exe.lower():
+            env_type = "conda"
+        elif "envs" in exe.lower() or "venv" in exe.lower() or ".venv" in exe.lower():
+            env_type = "virtualenv"
+        elif "pyenv" in exe.lower():
+            env_type = "pyenv"
+    elif platform.system() == "Darwin":
+        if "/usr/local/Cellar" in exe or "homebrew" in exe.lower():
+            env_type = "homebrew"
+        elif "anaconda" in exe.lower() or "conda" in exe.lower():
+            env_type = "conda"
+        elif "pyenv" in exe.lower():
+            env_type = "pyenv"
+        elif "envs" in exe.lower() or "venv" in exe.lower():
+            env_type = "virtualenv"
+    else:  # Linux
+        if "anaconda" in exe.lower() or "conda" in exe.lower():
+            env_type = "conda"
+        elif "pyenv" in exe.lower():
+            env_type = "pyenv"
+        elif "envs" in exe.lower() or "venv" in exe.lower():
+            env_type = "virtualenv"
+    
+    return {
+        "type": env_type,
+        "version": version,
+        "executable": exe,
+        "virtualized": str(virtualized),
+    }
+
+
+def get_physical_data_dir() -> Path:
+    """
+    Get the actual physical path to the data directory.
+    
+    This resolves filesystem virtualization/sandboxing:
+    - Windows Store Python: Files are stored in package's LocalCache folder
+    - Snap/Flatpak on Linux: May have similar sandboxing
+    - Regular Python: Returns the same as get_data_dir()
+    
+    The function auto-detects the Python environment and returns the correct
+    physical path where files actually exist on disk.
+    
+    Returns:
+        The physical path where data files actually exist on disk.
+    """
+    import sys
+    
+    logical_path = get_data_dir()
+    
+    # Check if using Windows Store Python (virtualized filesystem)
+    if platform.system() == "Windows" and "WindowsApps" in sys.executable:
+        # Extract the package name from the executable path
+        # e.g., PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0
+        try:
+            exe_parts = Path(sys.executable).parts
+            for part in exe_parts:
+                if part.startswith("PythonSoftwareFoundation.Python"):
+                    # Build the actual path in LocalCache
+                    local_app_data = os.environ.get("LOCALAPPDATA", "")
+                    physical_path = Path(local_app_data) / "Packages" / part / "LocalCache" / "Local" / "LocalPigeon"
+                    # Return this path even if it doesn't exist yet (it will be created)
+                    physical_path.mkdir(parents=True, exist_ok=True)
+                    return physical_path
+        except Exception:
+            pass
+    
+    # Linux Snap package detection
+    if platform.system() == "Linux" and os.environ.get("SNAP"):
+        # Snap apps have $SNAP_USER_DATA for persistent storage
+        snap_data = os.environ.get("SNAP_USER_DATA")
+        if snap_data:
+            physical_path = Path(snap_data) / "LocalPigeon"
+            physical_path.mkdir(parents=True, exist_ok=True)
+            return physical_path
+    
+    # Linux Flatpak detection
+    if platform.system() == "Linux" and os.environ.get("FLATPAK_ID"):
+        # Flatpak uses XDG directories but may be sandboxed
+        flatpak_data = os.environ.get("XDG_DATA_HOME")
+        if flatpak_data:
+            physical_path = Path(flatpak_data) / "local_pigeon"
+            physical_path.mkdir(parents=True, exist_ok=True)
+            return physical_path
+    
+    return logical_path
+
+
 def get_models_dir() -> Path:
     """
     Get the directory for storing downloaded models.
@@ -292,7 +398,28 @@ You have full permission to read, search, and interact with THEIR OWN data.
 This is NOT someone else's data - it's the user's own authorized accounts.
 
 When the user says "check my email" or "what's on my calendar", immediately call the tool.
-Do not ask for permission, do not explain privacy concerns - just use the tool.""",
+Do not ask for permission, do not explain privacy concerns - just use the tool.
+
+FACTUAL GROUNDING (CRITICAL):
+For questions about facts, current events, people (president, CEO, leader), statistics, or anything that could change:
+- ALWAYS use web_search BEFORE answering - DO NOT answer from memory
+- Never guess at facts, dates, names, or current positions
+- Your training data is OUTDATED - it does not know recent events
+- Examples: "who is the president", "who won the Super Bowl", "what's Bitcoin price"
+
+WHEN USING SEARCH RESULTS - THIS IS MANDATORY:
+- The search results are CURRENT and CORRECT. Your training data is OLD and WRONG.
+- If search results say X and your training says Y, the search results are RIGHT.
+- NEVER say "search results appear outdated" - YOUR TRAINING is outdated, not the search.
+- Report EXACTLY what the search results say, even if it surprises you.
+- Example: If search says "Donald Trump is president" but you think it's Biden, TRUST THE SEARCH.
+- Do NOT mix search results with your training data - use ONLY what the search returned.
+
+COMPLETING TASKS:
+After you call a tool and get results, PROVIDE YOUR FINAL ANSWER to the user.
+Do NOT call the same tool again unless you need different data.
+One tool call is usually enough - list files once, search once, then answer.
+If you have the information needed, STOP using tools and respond directly.""",
         description="System prompt for the agent (use {bot_name} and {user_name} as placeholders)"
     )
     max_history_messages: int = Field(default=20, ge=1, description="Max history messages")

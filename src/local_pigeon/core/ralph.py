@@ -56,9 +56,30 @@ class RALPHLoop:
             r"\bwhat('s| is| do i have)\b.*\b(today|tomorrow|this week)\b",
         ],
         "web_search": [
+            # Direct search requests
             r"\b(search|look up|find|google)\b",
             r"\b(weather|news|stock|price)\b",
             r"\b(what|who|when|where|how)\b.*\b(current|latest|recent|today)\b",
+            # Factual grounding - science & math
+            r"\bwhat is the (speed|value|formula|equation|constant)\b",
+            r"\b(calculate|compute|solve|what is)\b.*\b(formula|equation)\b",
+            r"\b(scientific|physics|chemistry|biology|math)\b.*\b(fact|law|theory|principle)\b",
+            # Factual grounding - historical/educational
+            r"\b(when did|what year|who invented|who discovered|who founded)\b",
+            r"\b(history of|origin of|invented|discovered)\b",
+            r"\b(capital of|population of|president of|leader of|ceo of|founder of)\b",
+            # Factual grounding - "who is" questions about people in positions
+            r"\bwho is (the|a|an)?\s*(president|ceo|leader|founder|owner|head)\b",
+            r"\bwho('s| is) (in charge|leading|running|heading)\b",
+            r"\bcurrent (president|leader|ceo|head|champion)\b",
+            # Factual grounding - current events & statistics
+            r"\b(won|winner|results|score)\b.*\b(election|game|match|super bowl|championship)\b",
+            r"\b(how many|how much|what percentage|statistics)\b",
+            r"\b(latest|recent|current|2024|2025|2026)\b.*\b(event|news|update|happening)\b",
+            # Question patterns that likely need verification
+            r"\bis it true that\b",
+            r"\bcan you (verify|confirm|fact-check)\b",
+            r"\bwhat are the (facts|statistics|numbers)\b",
         ],
         "drive": [
             r"\b(drive|google drive|files|documents)\b",
@@ -78,6 +99,17 @@ class RALPHLoop:
         r"I('m| am) an AI (and|so) I (cannot|can't)",
         r"I (don't|do not) have (real-time|live) access",
         r"(unfortunately|sorry),? I (cannot|can't)",
+        # Factual uncertainty - should have searched
+        r"I('m| am) not (sure|certain) (about|of) the (exact|current|latest)",
+        r"my (knowledge|training|information).*(cut.?off|outdated|may not be)",
+        r"I (may|might|could) be (wrong|mistaken|incorrect) about",
+        r"please (verify|double.?check|confirm) this",
+        r"I (recommend|suggest) (checking|verifying|looking up)",
+        r"for (accurate|up.?to.?date|current) (information|data)",
+        # Model not trusting search results (critical failure)
+        r"search results (appear|seem|look) (outdated|old|incorrect|wrong)",
+        r"results (you provided|I found) (appear|seem) (outdated|old)",
+        r"(based on|according to) my (training|knowledge).*(not|instead|rather than)",
     ]
     
     def __init__(

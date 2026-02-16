@@ -312,6 +312,12 @@ class AsyncFailureLog:
             None, lambda: self._sync_log.get_recent_failures(*args, **kwargs)
         )
     
+    async def get_failures_by_tool(self, tool_name: str) -> list[FailureRecord]:
+        import asyncio
+        return await asyncio.get_event_loop().run_in_executor(
+            None, lambda: self._sync_log.get_failures_by_tool(tool_name)
+        )
+    
     async def get_failure_summary(self) -> dict[str, Any]:
         import asyncio
         return await asyncio.get_event_loop().run_in_executor(
