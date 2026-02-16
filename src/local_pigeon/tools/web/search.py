@@ -68,9 +68,12 @@ Returns search results with titles, URLs, and snippets."""
     async def _search_duckduckgo(self, query: str, max_results: int) -> str:
         """Search using DuckDuckGo."""
         try:
-            from duckduckgo_search import DDGS
+            from ddgs import DDGS
         except ImportError:
-            return "Error: duckduckgo-search package not installed. Run: pip install duckduckgo-search"
+            try:
+                from duckduckgo_search import DDGS
+            except ImportError:
+                return "Error: ddgs package not installed. Run: pip install ddgs"
         
         # Map safe search setting
         safe_search_map = {

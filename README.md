@@ -1,4 +1,4 @@
-# 🕊️ Local Pigeon
+# Local Pigeon
 
 ```
   _                     _   ____  _                       
@@ -15,27 +15,29 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-## ✨ Features
+## Features
 
-- 🧠 **Local LLM Inference** - Uses Ollama for on-device model inference
-- 🔐 **Privacy First** - Your conversations never leave your device
-- 💬 **Multi-Platform** - Discord, Telegram, and Web UI support
-- 🔧 **Extensible Tools** - Web search, browser automation, and more
-- 🌐 **Browser Automation** - Navigate dynamic websites (Google Flights, etc.)
-- 🎤 **Voice Input** - Speech-to-text for hands-free interaction
-- 📧 **Google Workspace** - Gmail, Calendar, and Drive integration
-- 💳 **Payment Capabilities** - Stripe virtual cards and crypto (USDC/ETH)
-- ✅ **Human-in-the-Loop** - Approval workflow for sensitive operations
-- 📊 **Activity Dashboard** - Track interactions across all platforms
-- 🚀 **Easy Setup** - One-command installation
+- **Local LLM Inference** - Uses Ollama for on-device model inference
+- **Privacy First** - Your conversations never leave your device
+- **Multi-Platform** - Discord, Telegram, and Web UI support
+- **Extensible Tools** - Web search, browser automation, and more
+- **Browser Automation** - Navigate dynamic websites with Playwright (Google Flights, etc.)
+- **Voice Input** - Speech-to-text for hands-free interaction
+- **Vision Support** - Image analysis with vision models (LLaVA, Moondream)
+- **Model Catalog** - Curated inventory of thinking, vision, and coding models
+- **Google Workspace** - Gmail, Calendar, and Drive integration
+- **Payment Capabilities** - Stripe virtual cards and crypto (USDC/ETH)
+- **Human-in-the-Loop** - Approval workflow for sensitive operations
+- **Activity Dashboard** - Track interactions across all platforms
+- **Easy Setup** - One-command installation
 
-## 📋 Prerequisites
+## Prerequisites
 
 - **Python 3.10+** ([Download](https://www.python.org/downloads/))
 - **Ollama** ([Download](https://ollama.ai)) - *or Local Pigeon can auto-download models via llama-cpp-python*
 - A supported LLM model (e.g., `gemma3`, `llama3.2`, `qwen2.5`)
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Option 1: Auto-Installer (Recommended)
 
@@ -74,7 +76,7 @@ pip install -e .
 docker-compose up -d
 ```
 
-## ⚙️ Configuration
+## Configuration
 
 ### 1. Set up Ollama (or skip for auto-download)
 
@@ -136,7 +138,32 @@ local-pigeon run --platform telegram
 local-pigeon run --platform web
 ```
 
-## 💬 Platforms
+## Model Catalog
+
+Local Pigeon includes a curated catalog of models organized by capability:
+
+| Category | Models | Use Case |
+|----------|--------|----------|
+| **Thinking/Reasoning** | DeepSeek R1, Qwen 3, Kimi K2 | Complex problem solving, chain-of-thought |
+| **Vision** | LLaVA, Moondream, Llama 3.2 Vision | Image analysis, OCR |
+| **Coding** | Qwen 2.5 Coder, CodeLlama, DeepSeek Coder | Code generation, debugging |
+| **General** | Gemma 3, Llama 3.2, Mistral | General conversation |
+| **Small/Fast** | Qwen 2.5 0.5B-3B, Phi-3 Mini | Quick responses, low resources |
+
+Install models via the Web UI (Settings > Model Discovery) or command line:
+
+```bash
+# Reasoning model
+ollama pull deepseek-r1:7b
+
+# Vision model (for image analysis)
+ollama pull llava:7b
+
+# Coding model
+ollama pull qwen2.5-coder:7b
+```
+
+## Platforms
 
 ### Discord Bot
 
@@ -150,6 +177,7 @@ local-pigeon run --platform web
 - Streaming responses with message edits
 - Slash commands: `/model`, `/clear`, `/status`
 - Payment approval via DM
+- Image analysis (send images for vision models to analyze)
 
 ### Telegram Bot
 
@@ -171,11 +199,11 @@ Access at `http://localhost:7860` when running with `--platform web`.
 - Chat interface with streaming
 - Voice input (microphone)
 - Activity log across all platforms
+- Model discovery and installation
 - Settings panel
 - OAuth setup for Google
-- Tool execution display
 
-## 🧰 Tools
+## Tools
 
 ### Web Tools
 - **Web Search** - Search using DuckDuckGo
@@ -200,7 +228,7 @@ Access at `http://localhost:7860` when running with `--platform web`.
 - **List Channels** - See available channels
 - **Create Threads** - Start discussion threads
 
-## 💳 Payment System
+## Payment System
 
 Local Pigeon supports both traditional and crypto payments:
 
@@ -228,20 +256,20 @@ Configure threshold:
 PAYMENT_APPROVAL_THRESHOLD=25.00
 ```
 
-## 🔐 Security
+## Security
 
 - **Local Processing** - LLM runs on your device via Ollama
 - **Encrypted Storage** - OAuth tokens encrypted at rest
 - **Human Approval** - Sensitive operations require confirmation
 - **User Whitelist** - Restrict bot access to specific users
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 local_pigeon/
 ├── src/
 │   └── local_pigeon/
-│       ├── core/           # Agent, LLM client, conversation
+│       ├── core/           # Agent, LLM client, conversation, model catalog
 │       ├── platforms/      # Discord, Telegram adapters
 │       ├── tools/          # Web, Google, Payment, Discord tools
 │       │   ├── web/        # Search, fetch, browser automation
@@ -260,7 +288,7 @@ local_pigeon/
 └── docker-compose.yml      # Docker orchestration
 ```
 
-## 🛠️ Development
+## Development
 
 ### Setup Development Environment
 
@@ -283,7 +311,7 @@ ruff check .
 ruff format .
 ```
 
-## 📝 Commands Reference
+## Commands Reference
 
 ```bash
 # Run the agent
@@ -305,7 +333,7 @@ local-pigeon chat
 local-pigeon version
 ```
 
-## 🤝 Contributing
+## Contributing
 
 Contributions are welcome! Please read our contributing guidelines.
 
@@ -314,11 +342,11 @@ Contributions are welcome! Please read our contributing guidelines.
 3. Make your changes
 4. Submit a pull request
 
-## 📄 License
+## License
 
 MIT License - see [LICENSE](LICENSE) for details.
 
-## 🙏 Acknowledgments
+## Acknowledgments
 
 - [Ollama](https://ollama.ai) - Local LLM runtime
 - [Playwright](https://playwright.dev) - Browser automation
@@ -330,4 +358,4 @@ MIT License - see [LICENSE](LICENSE) for details.
 
 ---
 
-**Made with ❤️ for local-first AI**
+**Made with care for local-first AI**

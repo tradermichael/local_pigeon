@@ -8,13 +8,27 @@ Wrapper around the Ollama Python SDK with support for:
 - Model management
 """
 
+import asyncio
+import inspect
 import json
 import re
 from dataclasses import dataclass, field
-from typing import Any, AsyncIterator, Callable
+from typing import Any, AsyncIterator, Callable, Awaitable, Union
 
 import ollama
 from ollama import AsyncClient
+
+# Type for callbacks that can be sync or async
+ChunkCallback = Callable[[str], Union[None, Awaitable[None]]]
+
+
+async def call_callback(callback: ChunkCallback | None, chunk: str) -> None:
+    """Call a callback that might be sync or async."""
+    if callback is None:
+        return
+    result = callback(chunk)
+    if inspect.iscoroutine(result):
+        await result
 
 
 # Tool calling prompt template for models without native support
@@ -162,6 +176,7 @@ class Message:
     tool_calls: list[ToolCall] = field(default_factory=list)
     tool_call_id: str | None = None
     name: str | None = None  # For tool responses
+    images: list[str] = field(default_factory=list)  # Base64-encoded images for vision models
     
     def to_ollama(self) -> dict[str, Any]:
         """Convert to Ollama message format."""
@@ -169,6 +184,10 @@ class Message:
             "role": self.role,
             "content": self.content,
         }
+        
+        # Add images for vision-capable models
+        if self.images:
+            msg["images"] = self.images
         
         if self.tool_calls:
             msg["tool_calls"] = [
@@ -256,6 +275,17 @@ class OllamaClient:
     
     # Models known to not support native tool calling
     _models_without_native_tools: set[str] = set()
+    
+    # Cache for model capabilities
+    _model_capabilities_cache: dict[str, dict[str, Any]] = {}
+    
+    # Known vision-capable model families (base names without tags)
+    VISION_MODEL_FAMILIES = {
+        "llava", "llava-llama3", "llava-phi3", "bakllava",
+        "moondream", "moondream2",
+        "llama3.2-vision", "minicpm-v",
+        "cogvlm", "yi-vl", "nanollava",
+    }
     
     def __init__(
         self,
@@ -363,6 +393,128 @@ Based on this tool result, please continue with your task. Either use another to
     def pull_model(self, model: str) -> None:
         """Pull a model from the Ollama registry."""
         self._sync_client.pull(model)
+    
+    def _get_model_base_name(self, model: str) -> str:
+        """Extract the base model name without tags (e.g., 'llava:13b' -> 'llava')."""
+        return model.split(":")[0].lower()
+    
+    def is_vision_model(self, model: str | None = None) -> bool:
+        """
+        Check if a model supports vision/image inputs.
+        
+        Args:
+            model: Model name to check (defaults to current model)
+        
+        Returns:
+            True if the model supports images
+        """
+        check_model = model or self.model
+        base_name = self._get_model_base_name(check_model)
+        
+        # Check against known vision model families
+        for family in self.VISION_MODEL_FAMILIES:
+            if base_name.startswith(family) or base_name == family:
+                return True
+        
+        # Check cache for previously determined capabilities
+        if check_model in self._model_capabilities_cache:
+            return self._model_capabilities_cache[check_model].get("vision", False)
+        
+        return False
+    
+    async def get_model_capabilities(self, model: str | None = None) -> dict[str, Any]:
+        """
+        Get capabilities for a model.
+        
+        Args:
+            model: Model name to check (defaults to current model)
+        
+        Returns:
+            Dict with capabilities: vision, context_length, parameter_size, etc.
+        """
+        check_model = model or self.model
+        
+        # Return cached if available
+        if check_model in self._model_capabilities_cache:
+            return self._model_capabilities_cache[check_model]
+        
+        capabilities = {
+            "name": check_model,
+            "vision": self.is_vision_model(check_model),
+            "tool_calling": check_model not in self._models_without_native_tools,
+        }
+        
+        # Try to get model info from Ollama
+        try:
+            info = await self._async_client.show(check_model)
+            if info:
+                # Extract useful info
+                model_info = info.get("modelfile", "")
+                details = info.get("details", {})
+                
+                capabilities["family"] = details.get("family", "")
+                capabilities["parameter_size"] = details.get("parameter_size", "")
+                capabilities["quantization"] = details.get("quantization_level", "")
+                
+                # Check modelfile for vision-related info
+                if "vision" in model_info.lower() or "image" in model_info.lower():
+                    capabilities["vision"] = True
+        except Exception:
+            pass
+        
+        # Cache the result
+        self._model_capabilities_cache[check_model] = capabilities
+        return capabilities
+    
+    async def list_models_with_capabilities(self) -> list[dict[str, Any]]:
+        """
+        List all available models with their capabilities.
+        
+        Returns:
+            List of model dicts with name, vision, size, etc.
+        """
+        models = []
+        
+        try:
+            result = await self._async_client.list()
+            raw_models = result.get("models", [])
+            
+            for model in raw_models:
+                name = model.get("name", "")
+                
+                model_info = {
+                    "name": name,
+                    "size": model.get("size", 0),
+                    "modified": model.get("modified_at", ""),
+                    "vision": self.is_vision_model(name),
+                    "digest": model.get("digest", "")[:12],
+                }
+                
+                # Format size for display
+                size_gb = model_info["size"] / (1024 ** 3)
+                model_info["size_display"] = f"{size_gb:.1f} GB" if size_gb >= 1 else f"{model_info['size'] / (1024 ** 2):.0f} MB"
+                
+                models.append(model_info)
+        except Exception:
+            pass
+        
+        return models
+    
+    def get_vision_model(self) -> str | None:
+        """
+        Get a vision-capable model from available models.
+        
+        Returns the first vision model found, or None if none available.
+        """
+        try:
+            models = self.list_models()
+            for model in models:
+                name = model.get("name", "")
+                if self.is_vision_model(name):
+                    return name
+        except Exception:
+            pass
+        return None
     
     def chat(
         self,
@@ -530,7 +682,7 @@ Based on this tool result, please continue with your task. Either use another to
         messages: list[Message],
         tools: list[ToolDefinition] | None = None,
         model: str | None = None,
-        on_chunk: Callable[[str], None] | None = None,
+        on_chunk: ChunkCallback | None = None,
     ) -> Message:
         """
         Send a streaming chat request and collect the full response.
@@ -635,7 +787,7 @@ Based on this tool result, please continue with your task. Either use another to
                                         if json_match:
                                             # Found JSON tool call - send content before it and wait
                                             if json_match.start() > 0:
-                                                on_chunk(display_buffer[:json_match.start()])
+                                                await call_callback(on_chunk, display_buffer[:json_match.start()])
                                             # Keep from the JSON start to see if it completes
                                             display_buffer = display_buffer[json_match.start():]
                                             # Check if we have a complete JSON object
@@ -667,17 +819,17 @@ Based on this tool result, please continue with your task. Either use another to
                                         
                                         if potential_start > 0:
                                             # Send everything before the potential match
-                                            on_chunk(display_buffer[:potential_start])
+                                            await call_callback(on_chunk, display_buffer[:potential_start])
                                             display_buffer = display_buffer[potential_start:]
                                         elif potential_start == -1:
                                             # No potential match, send everything
                                             if display_buffer:
-                                                on_chunk(display_buffer)
+                                                await call_callback(on_chunk, display_buffer)
                                             display_buffer = ""
                                         break
                                     elif start_idx > 0:
                                         # Send content before tool call
-                                        on_chunk(display_buffer[:start_idx])
+                                        await call_callback(on_chunk, display_buffer[:start_idx])
                                         display_buffer = display_buffer[start_idx:]
                                         in_tool_call = True
                                     else:
@@ -686,7 +838,7 @@ Based on this tool result, please continue with your task. Either use another to
                                         continue
                         else:
                             # Native tools or no tools - send directly
-                            on_chunk(content)
+                            await call_callback(on_chunk, content)
                 
                 # Keep the last message for tool_calls
                 if chunk.get("done", False):
@@ -697,7 +849,7 @@ Based on this tool result, please continue with your task. Either use another to
                 # Clean any tool-call-related content from remaining buffer
                 cleaned_buffer = strip_tool_calls_from_text(display_buffer)
                 if cleaned_buffer:
-                    on_chunk(cleaned_buffer)
+                    await call_callback(on_chunk, cleaned_buffer)
             
         except ollama.ResponseError as e:
             # Check if the error is about tool support

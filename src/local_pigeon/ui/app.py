@@ -37,7 +37,7 @@ def create_app(
         Gradio Blocks application
     """
     if settings is None:
-        settings = Settings()
+        settings = Settings.load()
     
     # Import here to avoid circular imports
     from local_pigeon.core.agent import LocalPigeonAgent
@@ -111,14 +111,6 @@ def create_app(
                         interactive=True,
                     )
                     refresh_models_btn = gr.Button("🔄 Refresh Models")
-                
-                # Tool execution display
-                with gr.Accordion("🔧 Tool Executions", open=False):
-                    tool_log = gr.Textbox(
-                        label="Recent Tool Calls",
-                        lines=5,
-                        interactive=False,
-                    )
             
             # Memory Tab
             with gr.Tab("🧠 Memory"):
@@ -174,7 +166,7 @@ def create_app(
                     ### Activity Log
                     
                     View recent interactions across all platforms (Web, Discord, Telegram).
-                    Tool usage and messages are tracked here.
+                    Tool calls and messages are tracked here.
                     """
                 )
                 
@@ -194,12 +186,22 @@ def create_app(
                     row_count=15,
                 )
                 
-                gr.Markdown("### Tool Usage Summary")
-                tool_usage_summary = gr.Textbox(
-                    label="Tools used in recent sessions",
-                    lines=3,
-                    interactive=False,
-                )
+                with gr.Row():
+                    with gr.Column(scale=1):
+                        gr.Markdown("### 🔧 Tool Usage Summary")
+                        tool_usage_summary = gr.Textbox(
+                            label="Tools used in recent sessions",
+                            lines=5,
+                            interactive=False,
+                        )
+                    
+                    with gr.Column(scale=2):
+                        gr.Markdown("### 📋 Recent Tool Calls")
+                        recent_tool_calls = gr.Textbox(
+                            label="Detailed tool execution log",
+                            lines=8,
+                            interactive=False,
+                        )
             
             # Settings Tab
             with gr.Tab("⚙️ Settings"):
@@ -223,6 +225,106 @@ def create_app(
                             max_tokens = gr.Number(
                                 label="Max Tokens",
                                 value=settings.ollama.max_tokens,
+                            )
+                
+                with gr.Accordion("🔍 Model Discovery", open=False):
+                    gr.Markdown(
+                        """
+                        ### Discover & Install Models
+                        
+                        Local Pigeon supports various model types:
+                        - **🧠 Thinking/Reasoning**: Chain-of-thought models (DeepSeek R1, Qwen3, Kimi K2)
+                        - **🖼️ Vision Models**: Can analyze images (llava, moondream, llama3.2-vision)
+                        - **💻 Coding Models**: Optimized for code (Qwen Coder, CodeLlama, DeepSeek Coder)
+                        - **💬 General Chat**: Well-rounded models (Gemma, Llama, Mistral)
+                        - **⚡ Small/Fast**: Lightweight models for quick responses
+                        """
+                    )
+                    
+                    with gr.Tabs():
+                        with gr.Tab("📦 Installed"):
+                            models_list = gr.Dataframe(
+                                headers=["Model", "Size", "Vision", "Status"],
+                                datatype=["str", "str", "str", "str"],
+                                label="Installed Models",
+                                interactive=False,
+                                row_count=5,
+                            )
+                            refresh_models_list_btn = gr.Button("🔄 Refresh")
+                        
+                        with gr.Tab("📚 Model Catalog"):
+                            gr.Markdown("**Browse available models by category:**")
+                            
+                            catalog_category_filter = gr.Dropdown(
+                                label="Filter by Category",
+                                choices=[
+                                    "All Models",
+                                    "⭐ Recommended",
+                                    "🧠 Thinking/Reasoning",
+                                    "🖼️ Vision",
+                                    "💻 Coding",
+                                    "💬 General",
+                                    "⚡ Small/Fast",
+                                ],
+                                value="⭐ Recommended",
+                            )
+                            
+                            catalog_list = gr.Dataframe(
+                                headers=["Model", "Size", "Type", "Backend", "Description"],
+                                datatype=["str", "str", "str", "str", "str"],
+                                label="Model Catalog",
+                                interactive=False,
+                                row_count=8,
+                            )
+                        
+                        with gr.Tab("📥 Install Model"):
+                            gr.Markdown(
+                                """
+                                **Install models via Ollama or GGUF (llama-cpp-python)**
+                                
+                                For **Ollama** (recommended): Enter model name like `deepseek-r1:7b`, `qwen3:8b`, `llava`
+                                
+                                For **GGUF**: Select from catalog or enter HuggingFace repo path
+                                """
+                            )
+                            
+                            install_backend = gr.Radio(
+                                label="Backend",
+                                choices=["Ollama (recommended)", "GGUF (llama-cpp-python)"],
+                                value="Ollama (recommended)",
+                            )
+                            
+                            pull_model_input = gr.Textbox(
+                                label="Model Name",
+                                placeholder="e.g., deepseek-r1:7b, qwen3:8b, llava",
+                                info="Ollama: model name | GGUF: HuggingFace repo/file",
+                            )
+                            
+                            with gr.Row():
+                                pull_model_btn = gr.Button("📥 Install Model", variant="primary")
+                                check_ollama_btn = gr.Button("🔍 Check Ollama Status")
+                            
+                            pull_model_status = gr.Textbox(
+                                label="Status",
+                                lines=3,
+                                interactive=False,
+                            )
+                            
+                            gr.Markdown(
+                                """
+                                ---
+                                **Popular models to try:**
+                                
+                                | Model | Command | Best For |
+                                |-------|---------|----------|
+                                | DeepSeek R1 7B | `deepseek-r1:7b` | 🧠 Complex reasoning |
+                                | Qwen 3 8B | `qwen3:8b` | 🧠 Thinking mode (/think) |
+                                | LLaVA 7B | `llava:7b` | 🖼️ Image analysis |
+                                | Moondream | `moondream` | 🖼️ Fast vision |
+                                | Qwen Coder 7B | `qwen2.5-coder:7b` | 💻 Code generation |
+                                | Llama 3.2 3B | `llama3.2:3b` | ⚡ Fast & capable |
+                                | Gemma 3 4B | `gemma3:4b` | 💬 General chat |
+                                """
                             )
                 
                 with gr.Accordion("� Agent Behavior (Ralph Loop)", open=False):
@@ -913,25 +1015,19 @@ def create_app(
         async def chat(
             message: str,
             history: list[dict],
-        ) -> tuple[str, list[dict], str]:
+        ) -> tuple[str, list[dict]]:
             """Handle chat message."""
             if not message.strip():
-                return "", history, ""
+                return "", history
             
             try:
                 current_agent = await get_agent()
                 
-                # Collect response and tool calls
+                # Collect response
                 response_parts = []
-                tool_calls_log = []
                 
                 def stream_callback(chunk: str) -> None:
                     response_parts.append(chunk)
-                    # Capture tool usage from stream
-                    if "🔧 Using " in chunk:
-                        from datetime import datetime
-                        timestamp = datetime.now().strftime("%H:%M:%S")
-                        tool_calls_log.append(f"[{timestamp}] {chunk.strip()}")
                 
                 response = await current_agent.chat(
                     user_message=message,
@@ -947,10 +1043,7 @@ def create_app(
                     {"role": "assistant", "content": response},
                 ]
                 
-                # Build tool log display
-                tool_log_text = "\n".join(tool_calls_log) if tool_calls_log else "No tools used."
-                
-                return "", history, tool_log_text
+                return "", history
                 
             except Exception as e:
                 error_msg = f"Error: {str(e)}"
@@ -958,21 +1051,25 @@ def create_app(
                     {"role": "user", "content": message},
                     {"role": "assistant", "content": error_msg},
                 ]
-                return "", history, ""
+                return "", history
         
-        async def clear_history() -> tuple[list, str]:
+        async def clear_history() -> list:
             """Clear chat history."""
             try:
                 current_agent = await get_agent()
                 await current_agent.clear_history("web_user")
             except Exception:
                 pass
-            return [], ""
+            return []
         
         async def refresh_models() -> gr.Dropdown:
-            """Refresh available models from Ollama."""
+            """Refresh available models from Ollama with capability indicators."""
             try:
                 import httpx
+                from local_pigeon.core.llm_client import OllamaClient
+                
+                # Create a temporary client to check capabilities
+                temp_client = OllamaClient(host=settings.ollama.host)
                 
                 async with httpx.AsyncClient() as client:
                     resp = await client.get(
@@ -980,12 +1077,28 @@ def create_app(
                         timeout=10.0,
                     )
                     data = resp.json()
-                    models = [m["name"] for m in data.get("models", [])]
                     
-                    if not models:
-                        models = [settings.ollama.model]
+                    # Build model choices with capability indicators
+                    model_choices = []
+                    for m in data.get("models", []):
+                        name = m["name"]
+                        # Add vision indicator
+                        if temp_client.is_vision_model(name):
+                            display = f"🖼️ {name} (vision)"
+                        else:
+                            display = name
+                        model_choices.append((display, name))
                     
-                    return gr.Dropdown(choices=models, value=models[0])
+                    if not model_choices:
+                        model_choices = [(settings.ollama.model, settings.ollama.model)]
+                    
+                    # Get just the names for the value
+                    choices = [c[1] for c in model_choices]
+                    
+                    return gr.Dropdown(
+                        choices=model_choices,
+                        value=choices[0] if choices else settings.ollama.model,
+                    )
             except Exception:
                 return gr.Dropdown(
                     choices=[settings.ollama.model],
@@ -1001,6 +1114,183 @@ def create_app(
                 _save_env_var("OLLAMA_MODEL", model)
             except Exception:
                 pass
+        
+        async def list_installed_models() -> list:
+            """List installed models with their capabilities."""
+            try:
+                import httpx
+                from local_pigeon.core.llm_client import OllamaClient
+                
+                temp_client = OllamaClient(host=settings.ollama.host)
+                
+                async with httpx.AsyncClient() as client:
+                    resp = await client.get(
+                        f"{settings.ollama.host}/api/tags",
+                        timeout=10.0,
+                    )
+                    data = resp.json()
+                    
+                    rows = []
+                    for m in data.get("models", []):
+                        name = m["name"]
+                        size_bytes = m.get("size", 0)
+                        size_gb = size_bytes / (1024 ** 3)
+                        size_display = f"{size_gb:.1f} GB" if size_gb >= 1 else f"{size_bytes / (1024 ** 2):.0f} MB"
+                        
+                        is_vision = temp_client.is_vision_model(name)
+                        vision_display = "🖼️ Yes" if is_vision else "No"
+                        
+                        # Check if it's the current model
+                        status = "✅ Active" if name == settings.ollama.model else "Available"
+                        
+                        rows.append([name, size_display, vision_display, status])
+                    
+                    return rows
+            except Exception as e:
+                return [[f"Error: {e}", "", "", ""]]
+        
+        async def pull_model(model_name: str, backend: str) -> str:
+            """Pull/download a model from Ollama or HuggingFace."""
+            if not model_name.strip():
+                return "⚠️ Please enter a model name"
+            
+            model_name = model_name.strip()
+            is_ollama = "Ollama" in backend
+            
+            if is_ollama:
+                try:
+                    import httpx
+                    
+                    # Check if Ollama is running
+                    async with httpx.AsyncClient(timeout=httpx.Timeout(5.0)) as client:
+                        try:
+                            check = await client.get(f"{settings.ollama.host}/api/tags")
+                            if check.status_code != 200:
+                                return "❌ Ollama is not running. Start it with: `ollama serve`"
+                        except Exception:
+                            return "❌ Cannot connect to Ollama. Make sure it's running with: `ollama serve`"
+                    
+                    # Start pulling the model
+                    async with httpx.AsyncClient(timeout=httpx.Timeout(600.0)) as client:
+                        resp = await client.post(
+                            f"{settings.ollama.host}/api/pull",
+                            json={"name": model_name, "stream": False},
+                        )
+                        
+                        if resp.status_code == 200:
+                            return f"✅ Successfully pulled {model_name}!\n\nRefresh the model list to see it, then select it from the dropdown."
+                        else:
+                            return f"❌ Failed to pull model: {resp.text}"
+                            
+                except Exception as e:
+                    return f"❌ Error pulling model: {str(e)}"
+            else:
+                # GGUF download via llama-cpp-python
+                try:
+                    from local_pigeon.core.llama_cpp_client import download_model, AVAILABLE_MODELS
+                    from local_pigeon.core.model_catalog import find_model
+                    
+                    # Check if it's in our catalog
+                    catalog_model = find_model(model_name)
+                    if catalog_model and catalog_model.gguf_repo:
+                        model_name = f"{catalog_model.gguf_repo.split('/')[-1]}"
+                    
+                    # Check if it's a known model
+                    if model_name.lower().replace("-", "_").replace(" ", "_") in AVAILABLE_MODELS:
+                        key = model_name.lower().replace("-", "_").replace(" ", "_")
+                        path = download_model(key)
+                        return f"✅ Downloaded GGUF model to:\n{path}\n\nThe model is ready to use with llama-cpp-python backend."
+                    elif "/" in model_name:
+                        # Assume HuggingFace format: repo/filename.gguf
+                        path = download_model(model_name)
+                        return f"✅ Downloaded GGUF model to:\n{path}"
+                    else:
+                        available = ", ".join(AVAILABLE_MODELS.keys())
+                        return f"❌ Unknown GGUF model: {model_name}\n\nAvailable: {available}\n\nOr use HuggingFace format: owner/repo/filename.gguf"
+                        
+                except ImportError:
+                    return "❌ GGUF support requires:\n`pip install llama-cpp-python huggingface_hub`"
+                except Exception as e:
+                    return f"❌ Error downloading GGUF: {str(e)}"
+        
+        async def check_ollama_status() -> str:
+            """Check if Ollama is running and get status."""
+            try:
+                import httpx
+                
+                async with httpx.AsyncClient(timeout=httpx.Timeout(5.0)) as client:
+                    resp = await client.get(f"{settings.ollama.host}/api/tags")
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        model_count = len(data.get("models", []))
+                        return f"✅ Ollama is running at {settings.ollama.host}\n\n📦 {model_count} model(s) installed"
+                    else:
+                        return f"⚠️ Ollama responded but with status {resp.status_code}"
+            except Exception as e:
+                return f"❌ Ollama is not running or not reachable.\n\nStart it with: `ollama serve`\n\nError: {str(e)}"
+        
+        def load_model_catalog(category_filter: str) -> list:
+            """Load model catalog filtered by category."""
+            try:
+                from local_pigeon.core.model_catalog import (
+                    MODEL_CATALOG, ModelCategory,
+                    get_recommended_models, get_thinking_models,
+                    get_vision_models, get_coding_models,
+                    get_small_models, get_models_by_category,
+                )
+                
+                # Map filter to category
+                if category_filter == "⭐ Recommended":
+                    models = get_recommended_models()
+                elif category_filter == "🧠 Thinking/Reasoning":
+                    models = get_thinking_models()
+                elif category_filter == "🖼️ Vision":
+                    models = get_vision_models()
+                elif category_filter == "💻 Coding":
+                    models = get_coding_models()
+                elif category_filter == "💬 General":
+                    models = get_models_by_category(ModelCategory.GENERAL)
+                elif category_filter == "⚡ Small/Fast":
+                    models = get_small_models()
+                else:
+                    models = MODEL_CATALOG
+                
+                # Format for display
+                rows = []
+                for model in models:
+                    # Format categories with emojis
+                    cat_emojis = {
+                        ModelCategory.THINKING: "🧠",
+                        ModelCategory.VISION: "🖼️",
+                        ModelCategory.CODING: "💻",
+                        ModelCategory.GENERAL: "💬",
+                        ModelCategory.SMALL: "⚡",
+                        ModelCategory.MULTILINGUAL: "🌍",
+                    }
+                    categories = " ".join(cat_emojis.get(c, "") for c in model.categories)
+                    
+                    # Backend availability
+                    backends = []
+                    if model.supports_ollama:
+                        backends.append("Ollama")
+                    if model.supports_gguf:
+                        backends.append("GGUF")
+                    backend_str = " / ".join(backends)
+                    
+                    # Recommended indicator
+                    name = f"⭐ {model.name}" if model.recommended else model.name
+                    
+                    rows.append([
+                        name,
+                        model.size_label,
+                        categories,
+                        backend_str,
+                        model.description,
+                    ])
+                
+                return rows
+            except Exception as e:
+                return [[f"Error: {e}", "", "", "", ""]]
         
         def save_settings_handler(
             host: str,
@@ -1158,19 +1448,20 @@ def create_app(
         async def send_voice_message(
             transcription: str,
             history: list[dict],
-        ) -> tuple[str, list[dict], str, str]:
+        ) -> tuple[str, list[dict], str]:
             """Send transcribed voice message as chat."""
             if not transcription.strip():
-                return "", history, "", ""
+                return "", history, ""
             
-            msg_result, new_history, tool_log = await chat(transcription, history)
-            return "", new_history, tool_log, ""
+            msg_result, new_history = await chat(transcription, history)
+            return "", new_history, ""
         
         # Activity log handlers
-        async def load_activity(platform_filter: str) -> tuple[list, str]:
+        async def load_activity(platform_filter: str) -> tuple[list, str, str]:
             """Load recent activity across all platforms."""
             try:
                 from local_pigeon.core.conversation import AsyncConversationManager
+                import json
                 
                 conv_manager = AsyncConversationManager(db_path=settings.storage.database)
                 
@@ -1180,19 +1471,27 @@ def create_app(
                 # Format for display
                 rows = []
                 tool_usage = {}
+                recent_tool_calls = []
                 
                 for item in activity:
                     # Parse timestamp
                     timestamp = item.get("timestamp", "")[:19] if item.get("timestamp") else ""
                     
-                    # Track tool usage
+                    # Track tool usage and recent calls
                     if item.get("tool_calls"):
-                        import json
                         try:
                             calls = json.loads(item["tool_calls"])
                             for call in calls:
                                 tool_name = call.get("name", "unknown")
                                 tool_usage[tool_name] = tool_usage.get(tool_name, 0) + 1
+                                
+                                # Add to recent calls log
+                                args_str = json.dumps(call.get("arguments", {}))
+                                if len(args_str) > 80:
+                                    args_str = args_str[:77] + "..."
+                                recent_tool_calls.append(
+                                    f"[{timestamp}] 🔧 {tool_name}({args_str})"
+                                )
                         except Exception:
                             pass
                     
@@ -1220,10 +1519,16 @@ def create_app(
                 else:
                     summary = "No tool usage recorded yet."
                 
-                return rows, summary
+                # Recent tool calls log
+                if recent_tool_calls:
+                    recent_calls_text = "\n".join(recent_tool_calls[:20])  # Show last 20
+                else:
+                    recent_calls_text = "No recent tool calls."
+                
+                return rows, summary, recent_calls_text
             
             except Exception as e:
-                return [], f"Error loading activity: {e}"
+                return [], f"Error loading activity: {e}", ""
         
         # Integration handlers
         def generate_discord_invite(app_id: str) -> str:
@@ -1531,18 +1836,25 @@ def create_app(
         
         def save_browser_settings(enabled: bool, headless: bool) -> str:
             """Save browser automation settings."""
+            nonlocal agent
             try:
                 settings.web.browser.enabled = enabled
                 settings.web.browser.headless = headless
                 _save_env_var("BROWSER_ENABLED", str(enabled).lower())
                 _save_env_var("BROWSER_HEADLESS", str(headless).lower())
                 
+                # Reload agent tools to pick up the change
+                if agent is not None:
+                    agent.settings.web.browser.enabled = enabled
+                    agent.settings.web.browser.headless = headless
+                    agent.reload_tools()
+                
                 if enabled and headless:
-                    status = "✅ Enabled (headless)"
+                    status = "✅ Enabled (headless) - Tools reloaded"
                 elif enabled:
-                    status = "✅ Enabled (GUI mode)"
+                    status = "✅ Enabled (GUI mode) - Tools reloaded"
                 else:
-                    status = "⚠️ Disabled"
+                    status = "⚠️ Disabled - Tools reloaded"
                 
                 return status
             except Exception as e:
@@ -1607,18 +1919,18 @@ def create_app(
         send_btn.click(
             fn=chat,
             inputs=[msg_input, chatbot],
-            outputs=[msg_input, chatbot, tool_log],
+            outputs=[msg_input, chatbot],
         )
         
         msg_input.submit(
             fn=chat,
             inputs=[msg_input, chatbot],
-            outputs=[msg_input, chatbot, tool_log],
+            outputs=[msg_input, chatbot],
         )
         
         clear_btn.click(
             fn=clear_history,
-            outputs=[chatbot, tool_log],
+            outputs=[chatbot],
         )
         
         refresh_models_btn.click(
@@ -1643,6 +1955,36 @@ def create_app(
                 require_approval,
             ],
             outputs=[settings_status],
+        )
+        
+        # Model discovery events
+        refresh_models_list_btn.click(
+            fn=list_installed_models,
+            outputs=[models_list],
+        )
+        
+        pull_model_btn.click(
+            fn=pull_model,
+            inputs=[pull_model_input, install_backend],
+            outputs=[pull_model_status],
+        )
+        
+        check_ollama_btn.click(
+            fn=check_ollama_status,
+            outputs=[pull_model_status],
+        )
+        
+        catalog_category_filter.change(
+            fn=load_model_catalog,
+            inputs=[catalog_category_filter],
+            outputs=[catalog_list],
+        )
+        
+        # Load catalog on app start
+        app.load(
+            fn=load_model_catalog,
+            inputs=[catalog_category_filter],
+            outputs=[catalog_list],
         )
         
         open_folder_btn.click(
@@ -1685,13 +2027,13 @@ def create_app(
         refresh_activity_btn.click(
             fn=load_activity,
             inputs=[activity_platform_filter],
-            outputs=[activity_log, tool_usage_summary],
+            outputs=[activity_log, tool_usage_summary, recent_tool_calls],
         )
         
         activity_platform_filter.change(
             fn=load_activity,
             inputs=[activity_platform_filter],
-            outputs=[activity_log, tool_usage_summary],
+            outputs=[activity_log, tool_usage_summary, recent_tool_calls],
         )
         
         # Integration events
@@ -1768,7 +2110,12 @@ def create_app(
 
 
 def _save_env_var(key: str, value: str) -> None:
-    """Save an environment variable to the .env file."""
+    """Save an environment variable to the .env file and current process."""
+    import os
+    
+    # Set in current process immediately
+    os.environ[key] = value
+    
     data_dir = get_data_dir()
     env_path = data_dir / ".env"
     

@@ -39,7 +39,7 @@ dependencies = [
     # CLI & UI
     "typer>=0.12",
     "rich>=13.0",
-    "gradio>=4.0",
+    "gradio>=6.0",
     
     # Platforms
     "discord.py>=2.3.0",
@@ -54,7 +54,7 @@ dependencies = [
     "stripe>=7.0",
     
     # Web & HTTP
-    "duckduckgo-search>=4.0",
+    "ddgs>=7.0",
     "httpx>=0.27",
     "beautifulsoup4>=4.12",
     

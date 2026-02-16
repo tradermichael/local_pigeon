@@ -111,15 +111,23 @@ class DiscordAdapter(BasePlatformAdapter):
                 content = content.replace(f"<@{self.bot.user.id}>", "").strip()
                 content = content.replace(f"<@!{self.bot.user.id}>", "").strip()
             
-            if not content:
+            # Extract images from attachments
+            images = await self._extract_images(message)
+            
+            # Allow messages with just images (no text content required)
+            if not content and not images:
                 return
+            
+            # If only images, add a default prompt
+            if not content and images:
+                content = "What's in this image?"
             
             # Show typing indicator
             if self.settings.show_typing:
                 async with message.channel.typing():
-                    await self._process_message(message, content)
+                    await self._process_message(message, content, images)
             else:
-                await self._process_message(message, content)
+                await self._process_message(message, content, images)
         
         # Slash commands
         @self.bot.tree.command(name="model", description="Switch the AI model")
@@ -159,10 +167,51 @@ class DiscordAdapter(BasePlatformAdapter):
                 ephemeral=True,
             )
     
+    async def _extract_images(self, message: discord.Message) -> list[str]:
+        """
+        Extract images from Discord message attachments.
+        
+        Downloads image attachments and converts them to base64 for vision models.
+        Supports common image formats: PNG, JPG, JPEG, GIF, WEBP.
+        
+        Returns:
+            List of base64-encoded image strings
+        """
+        import base64
+        import aiohttp
+        
+        images = []
+        image_types = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
+        
+        for attachment in message.attachments:
+            # Check if it's an image
+            filename_lower = attachment.filename.lower()
+            is_image = any(filename_lower.endswith(ext) for ext in image_types)
+            is_image = is_image or (attachment.content_type and attachment.content_type.startswith("image/"))
+            
+            if not is_image:
+                continue
+            
+            try:
+                # Download the image
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(attachment.url) as resp:
+                        if resp.status == 200:
+                            image_data = await resp.read()
+                            # Convert to base64
+                            b64_image = base64.b64encode(image_data).decode("utf-8")
+                            images.append(b64_image)
+            except Exception as e:
+                print(f"Failed to download image attachment: {e}")
+                continue
+        
+        return images
+    
     async def _process_message(
         self,
         message: discord.Message,
         content: str,
+        images: list[str] | None = None,
     ) -> None:
         """Process a user message and send response."""
         user_id = str(message.author.id)
@@ -210,6 +259,7 @@ class DiscordAdapter(BasePlatformAdapter):
                 session_id=session_id,
                 platform="discord",
                 stream_callback=stream_callback,
+                images=images,
             )
             
             # Send final response (may need to split)

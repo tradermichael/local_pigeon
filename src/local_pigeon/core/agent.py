@@ -16,7 +16,7 @@ from enum import Enum
 from typing import Any, Callable, Awaitable
 
 from local_pigeon.config import Settings, get_settings
-from local_pigeon.core.llm_client import OllamaClient, Message, ToolDefinition, ToolCall
+from local_pigeon.core.llm_client import OllamaClient, Message, ToolDefinition, ToolCall, call_callback
 from local_pigeon.core.conversation import AsyncConversationManager
 from local_pigeon.storage.memory import AsyncMemoryManager, MemoryType
 from local_pigeon.storage.failure_log import AsyncFailureLog
@@ -350,6 +350,7 @@ Timezone: {datetime.now().astimezone().tzinfo}
         session_id: str | None = None,
         platform: str = "cli",
         stream_callback: Callable[[str], None] | None = None,
+        images: list[str] | None = None,
     ) -> str:
         """
         Process a chat message and return the response.
@@ -360,10 +361,29 @@ Timezone: {datetime.now().astimezone().tzinfo}
             session_id: Optional session/thread identifier
             platform: Platform name (cli, discord, telegram, web)
             stream_callback: Optional callback for streaming responses
+            images: Optional list of base64-encoded images for vision models
             
         Returns:
             The assistant's response
         """
+        # If images are provided, check if we need to switch to a vision model
+        if images:
+            if not self.llm.is_vision_model():
+                # Try to find a vision model
+                vision_model = self.llm.get_vision_model()
+                if vision_model:
+                    # Temporarily switch to vision model for this request
+                    original_model = self.llm.model
+                    self.llm.model = vision_model
+                    # Log the model switch
+                    if stream_callback:
+                        stream_callback(f"🖼️ Switching to vision model: {vision_model}\\n\\n")
+                else:
+                    if stream_callback:
+                        stream_callback("⚠️ No vision model available. Install one with: `ollama pull llava`\\n\\n")
+                    # Continue without images
+                    images = None
+        
         # Get or create conversation
         conversation_id = await self.conversations.get_or_create_conversation(
             user_id=user_id,
@@ -378,13 +398,16 @@ Timezone: {datetime.now().astimezone().tzinfo}
         system_prompt = await self.get_personalized_system_prompt(user_id)
         
         # Build messages for the LLM
+        # Include images in the user message if provided
+        user_msg = Message(role="user", content=user_message, images=images or [])
+        
         messages = [
             Message(role="system", content=system_prompt),
             *history,
-            Message(role="user", content=user_message),
+            user_msg,
         ]
         
-        # Save user message
+        # Save user message (without images for storage)
         await self.conversations.add_message(
             conversation_id,
             Message(role="user", content=user_message),
@@ -464,7 +487,7 @@ Timezone: {datetime.now().astimezone().tzinfo}
                 # If we executed tools, prepend a brief status
                 if tool_results_this_session and stream_callback:
                     # Stream the final response
-                    stream_callback(final_response)
+                    await call_callback(stream_callback, final_response)
                 
                 return final_response
             
@@ -475,7 +498,7 @@ Timezone: {datetime.now().astimezone().tzinfo}
             for tool_call in response.tool_calls:
                 # Notify user that tool is being executed
                 if stream_callback:
-                    stream_callback(f"\n🔧 Using {tool_call.name}...\n")
+                    await call_callback(stream_callback, f"\n🔧 Using {tool_call.name}...\n")
                 
                 # Checkpoint mode: require approval for every tool execution
                 if self.settings.agent.checkpoint_mode:
@@ -491,7 +514,7 @@ Timezone: {datetime.now().astimezone().tzinfo}
                     self._pending_approvals[approval_id] = pending
                     
                     if stream_callback:
-                        stream_callback(f"\n⏸️ Checkpoint: Awaiting approval for {tool_call.name}...\n")
+                        await call_callback(stream_callback, f"\n⏸️ Checkpoint: Awaiting approval for {tool_call.name}...\n")
                     
                     approved = await self._request_approval(pending, platform)
                     del self._pending_approvals[approval_id]
