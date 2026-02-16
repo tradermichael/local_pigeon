@@ -197,6 +197,7 @@ Access at `http://localhost:7860` when running with `--platform web`.
 
 **Features:**
 - Chat interface with streaming
+- **Tool activity transparency** - See which tools the agent uses in real-time
 - Voice input (microphone)
 - Activity log across all platforms
 - Model discovery and installation

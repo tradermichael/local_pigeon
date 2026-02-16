@@ -265,7 +265,12 @@ class DiscordAdapter(BasePlatformAdapter):
             # Send final response (may need to split)
             await self._send_long_message(response_msg, response)
             
+        except asyncio.TimeoutError:
+            await response_msg.edit(content="⏰ Response timed out. The model may be too slow. Try a faster model like `gemma3:latest`.")
         except Exception as e:
+            import traceback
+            print(f"Discord error processing message: {e}")
+            traceback.print_exc()
             await response_msg.edit(content=f"❌ Error: {str(e)[:200]}")
     
     async def _send_long_message(

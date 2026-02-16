@@ -11,12 +11,16 @@ Wrapper around the Ollama Python SDK with support for:
 import asyncio
 import inspect
 import json
+import logging
 import re
 from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, Callable, Awaitable, Union
 
 import ollama
 from ollama import AsyncClient
+
+# Logger for this module
+logger = logging.getLogger("local_pigeon.llm_client")
 
 # Type for callbacks that can be sync or async
 ChunkCallback = Callable[[str], Union[None, Awaitable[None]]]
@@ -32,7 +36,9 @@ async def call_callback(callback: ChunkCallback | None, chunk: str) -> None:
 
 
 # Tool calling prompt template for models without native support
-TOOL_SYSTEM_PROMPT = """You have access to the following tools. To use a tool, respond with a tool call in this exact format:
+TOOL_SYSTEM_PROMPT = """You have access to tools. You MUST use them when the user asks for information you don't have.
+
+TO USE A TOOL, respond with ONLY this format (nothing else):
 
 <tool_call>
 {{"name": "tool_name", "arguments": {{"arg1": "value1"}}}}
@@ -41,17 +47,26 @@ TOOL_SYSTEM_PROMPT = """You have access to the following tools. To use a tool, r
 Available tools:
 {tool_descriptions}
 
-IMPORTANT RULES:
-1. Only use tools when you need external information or actions to answer the user's question
-2. You can make multiple tool calls by including multiple <tool_call> blocks
-3. After you receive tool results, analyze them and either:
-   - Use another tool if you need more information
-   - Provide your FINAL ANSWER to the user (without any <tool_call> tags)
-4. If no tool is needed, respond directly without any <tool_call> tags
-5. NEVER include raw <tool_call> tags in your final answer to the user
-6. When you have all the information you need, give a complete, helpful response
+CRITICAL INSTRUCTIONS:
+1. When user asks about their emails → USE gmail tool with {{"action": "list"}}
+2. When user asks about their calendar → USE calendar tool with {{"action": "list"}}  
+3. When user asks about current events/news → USE web_search tool
+4. DO NOT say "I can't access" or "I'm unable to" - USE THE TOOL INSTEAD
+5. DO NOT suggest the user do it themselves - USE THE TOOL FOR THEM
+6. The user has already authorized these tools via OAuth - you have permission
 
-Remember: Your response either contains <tool_call> blocks (and I will execute them), OR it's a final answer to the user. Never mix them.
+EXAMPLES:
+User: "what are my latest emails?"
+You respond: <tool_call>
+{{"name": "gmail", "arguments": {{"action": "list", "max_results": 5}}}}
+</tool_call>
+
+User: "what's on my calendar today?"
+You respond: <tool_call>
+{{"name": "calendar", "arguments": {{"action": "list"}}}}
+</tool_call>
+
+After receiving tool results, provide a helpful summary to the user.
 """
 
 
@@ -273,8 +288,17 @@ class OllamaClient:
     falls back to prompt-based tool calling.
     """
     
-    # Models known to not support native tool calling
+    # Models known to not support native tool calling (use prompt-based instead)
     _models_without_native_tools: set[str] = set()
+    
+    # Model families that should always use prompt-based tools
+    PROMPT_TOOL_MODEL_FAMILIES = {
+        "deepseek-r1", "deepseek-r1-distill",  # Reasoning models
+        "qwen", "qwen2", "qwen2.5", "qwq",  # Qwen models - native tools unreliable
+        "phi", "phi3", "phi4",  # Microsoft Phi models
+        "gemma", "gemma2", "gemma3",  # Google Gemma
+        "tinyllama", "orca-mini",  # Smaller models
+    }
     
     # Cache for model capabilities
     _model_capabilities_cache: dict[str, dict[str, Any]] = {}
@@ -304,9 +328,23 @@ class OllamaClient:
         self._sync_client = ollama.Client(host=host)
         self._async_client = AsyncClient(host=host)
     
+    async def close(self) -> None:
+        """Close the async client session."""
+        if hasattr(self._async_client, '_client') and self._async_client._client:
+            await self._async_client._client.aclose()
+    
     def _should_use_prompt_tools(self, model: str) -> bool:
         """Check if we should use prompt-based tool calling for this model."""
-        return self.force_prompt_tools or model in self._models_without_native_tools
+        if self.force_prompt_tools or model in self._models_without_native_tools:
+            return True
+        
+        # Check if model family should use prompt-based tools
+        base_name = self._get_model_base_name(model)
+        for family in self.PROMPT_TOOL_MODEL_FAMILIES:
+            if base_name.startswith(family) or family in base_name:
+                return True
+        
+        return False
     
     def _add_tool_prompt_to_messages(
         self,
@@ -500,16 +538,32 @@ Based on this tool result, please continue with your task. Either use another to
         
         return models
     
-    def get_vision_model(self) -> str | None:
+    def get_vision_model(self, preferred: str | None = None) -> str | None:
         """
         Get a vision-capable model from available models.
         
-        Returns the first vision model found, or None if none available.
+        Args:
+            preferred: Preferred vision model name (used if available)
+        
+        Returns the preferred model if available and vision-capable,
+        otherwise the first vision model found, or None if none available.
         """
         try:
             models = self.list_models()
-            for model in models:
-                name = model.get("name", "")
+            model_names = [m.get("name", "") for m in models]
+            
+            # Check preferred model first
+            if preferred:
+                # Check exact match
+                if preferred in model_names and self.is_vision_model(preferred):
+                    return preferred
+                # Check partial match (e.g., "llava" matches "llava:7b")
+                for name in model_names:
+                    if preferred.lower() in name.lower() and self.is_vision_model(name):
+                        return name
+            
+            # Fall back to first available vision model
+            for name in model_names:
                 if self.is_vision_model(name):
                     return name
         except Exception:
@@ -570,8 +624,13 @@ Based on this tool result, please continue with your task. Either use another to
         """
         use_model = model or self.model
         
+        # Log the request
+        user_msg = next((m.content for m in reversed(messages) if m.role == "user"), "")
+        logger.debug(f"Chat request: model={use_model}, tools={len(tools) if tools else 0}, user_msg={user_msg[:100]}...")
+        
         # Check if we should use prompt-based tools
         if tools and self._should_use_prompt_tools(use_model):
+            logger.debug(f"Using prompt-based tools for model {use_model}")
             return await self._achat_with_prompt_tools(messages, tools, use_model)
         
         # Try native tool calling first
@@ -580,6 +639,7 @@ Based on this tool result, please continue with your task. Either use another to
                 ollama_messages = [m.to_ollama() for m in messages]
                 ollama_tools = [t.to_ollama() for t in tools]
                 
+                logger.debug(f"Sending chat with native tools to Ollama")
                 response = await self._async_client.chat(
                     model=use_model,
                     messages=ollama_messages,
@@ -590,20 +650,27 @@ Based on this tool result, please continue with your task. Either use another to
                     },
                 )
                 
-                return Message.from_ollama(response.get("message", {}))
+                result = Message.from_ollama(response.get("message", {}))
+                logger.debug(f"Response: tool_calls={len(result.tool_calls) if result.tool_calls else 0}, content_len={len(result.content or '')}")
+                if result.tool_calls:
+                    logger.info(f"Model called tools: {[tc.name for tc in result.tool_calls]}")
+                return result
                 
             except ollama.ResponseError as e:
                 # Check if the error is about tool support
                 if "does not support tools" in str(e) or e.status_code == 400:
                     # Remember this model doesn't support native tools
+                    logger.info(f"Model {use_model} doesn't support native tools, switching to prompt-based")
                     self._models_without_native_tools.add(use_model)
                     # Retry with prompt-based tools
                     return await self._achat_with_prompt_tools(messages, tools, use_model)
+                logger.error(f"Ollama error: {e}")
                 raise
         
         # No tools - simple chat
         ollama_messages = [m.to_ollama() for m in messages]
         
+        logger.debug(f"Sending simple chat (no tools) to Ollama")
         response = await self._async_client.chat(
             model=use_model,
             messages=ollama_messages,
@@ -613,7 +680,9 @@ Based on this tool result, please continue with your task. Either use another to
             },
         )
         
-        return Message.from_ollama(response.get("message", {}))
+        result = Message.from_ollama(response.get("message", {}))
+        logger.debug(f"Response received: {len(result.content or '')} chars")
+        return result
     
     async def _achat_with_prompt_tools(
         self,

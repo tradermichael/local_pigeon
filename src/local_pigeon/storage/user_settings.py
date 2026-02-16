@@ -18,6 +18,10 @@ class UserSettings(BaseModel):
     These override global settings on a per-user basis.
     """
     
+    # Personalization settings
+    bot_name: str = "Pigeon"  # What the bot is called
+    user_display_name: str = ""  # What the user prefers to be called (empty = no name)
+    
     # Payment approval settings
     payment_approval_threshold: float = 25.0
     auto_approve_trusted_merchants: bool = False

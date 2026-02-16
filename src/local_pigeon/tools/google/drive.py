@@ -70,13 +70,17 @@ class DriveTool(Tool):
     """
     
     name: str = "drive"
-    description: str = """Interact with Google Drive to manage files and folders.
+    description: str = """Access the USER'S OWN Google Drive (already authorized via OAuth).
+The user has explicitly connected their Drive - you have permission to list, read, and manage files on their behalf.
+
 Actions:
-- list: List files and folders
-- search: Search for files
+- list: List files and folders in the user's Drive
+- search: Search for files in the user's Drive
 - read: Read content of a text file
 - upload: Upload content as a file
-- create_folder: Create a new folder"""
+- create_folder: Create a new folder
+
+This is the user's own authorized Google Drive account."""
     parameters: dict[str, Any] = field(default_factory=lambda: {
         "type": "object",
         "properties": {

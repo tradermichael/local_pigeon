@@ -28,6 +28,7 @@ from rich.padding import Padding
 
 from local_pigeon import __version__
 from local_pigeon.config import get_settings, get_data_dir, ensure_data_dir
+from local_pigeon.logging import setup_logging, get_recent_logs, list_log_files
 
 app = typer.Typer(name="local-pigeon", help="Local AI Agent", add_completion=False)
 console = Console()
@@ -232,9 +233,73 @@ def create_status_table(config):
 
 
 @app.command()
-def run(host: str = None, port: int = None, no_ui: bool = False):
+def logs(
+    lines: int = typer.Option(50, "--lines", "-n", help="Number of lines to show"),
+    level: Optional[str] = typer.Option(None, "--level", "-l", help="Filter by level (DEBUG, INFO, WARNING, ERROR)"),
+    follow: bool = typer.Option(False, "--follow", "-f", help="Follow log output (like tail -f)"),
+    list_files: bool = typer.Option(False, "--list", help="List available log files"),
+):
+    """View recent logs for debugging."""
+    if list_files:
+        files = list_log_files()
+        if not files:
+            console.print("[yellow]No log files found.[/]")
+            return
+        table = Table(title="Log Files", box=ROUNDED)
+        table.add_column("File", style="cyan")
+        table.add_column("Size", style="dim")
+        for f in files:
+            size = f.stat().st_size
+            size_str = f"{size:,} bytes" if size < 1024 else f"{size/1024:.1f} KB"
+            table.add_row(f.name, size_str)
+        console.print(table)
+        return
+    
+    if follow:
+        console.print("[dim]Following logs... Press Ctrl+C to stop[/]\n")
+        data_dir = get_data_dir()
+        log_dir = data_dir / "logs"
+        from datetime import date
+        log_file = log_dir / f"pigeon_{date.today().isoformat()}.log"
+        if not log_file.exists():
+            console.print(f"[yellow]No log file for today yet: {log_file}[/]")
+            return
+        try:
+            import time as time_module
+            with open(log_file, 'r') as f:
+                # Go to end
+                f.seek(0, 2)
+                while True:
+                    line = f.readline()
+                    if line:
+                        console.print(line.rstrip())
+                    else:
+                        time_module.sleep(0.1)
+        except KeyboardInterrupt:
+            console.print("\n[dim]Stopped following logs.[/]")
+            return
+    
+    log_output = get_recent_logs(lines=lines, level_filter=level)
+    if not log_output.strip():
+        console.print("[yellow]No logs found.[/] Run [cyan]pigeon run --debug[/] to enable debug logging.")
+    else:
+        console.print(log_output)
+
+
+@app.command()
+def run(host: str = None, port: int = None, no_ui: bool = False, debug: bool = typer.Option(False, "--debug", "-d", help="Enable debug logging")):
     """Start the Local Pigeon agent."""
     print_banner(small=True)
+    
+    # Initialize logging
+    log_level = "DEBUG" if debug else "INFO"
+    logger = setup_logging(level=log_level, console=debug, debug_mode=debug)
+    if debug:
+        console.print("[yellow]Debug mode enabled - logging to console and file[/]")
+    else:
+        data_dir = get_data_dir()
+        console.print(f"[dim]Logs: {data_dir / 'logs'}[/]")
+    
     console.print("[dim]Initializing Local Pigeon...[/]")
     settings = get_settings()
     if host: settings.ui.host = host
@@ -270,15 +335,24 @@ def run(host: str = None, port: int = None, no_ui: bool = False):
     from local_pigeon.core.agent import LocalPigeonAgent
     async def main():
         agent = LocalPigeonAgent(settings)
+        await agent.initialize()
+        
+        # Track adapters for cleanup
+        adapters = []
         tasks = []
+        
         if settings.discord.enabled and settings.discord.bot_token:
             console.print("[green]✓[/] Discord bot enabled")
             from local_pigeon.platforms.discord_adapter import DiscordAdapter
-            tasks.append(DiscordAdapter(agent, settings.discord).start())
+            discord_adapter = DiscordAdapter(agent, settings.discord)
+            adapters.append(discord_adapter)
+            tasks.append(discord_adapter.start())
         if settings.telegram.enabled and settings.telegram.bot_token:
             console.print("[green]✓[/] Telegram bot enabled")
             from local_pigeon.platforms.telegram_adapter import TelegramAdapter
-            tasks.append(TelegramAdapter(agent, settings.telegram).start())
+            telegram_adapter = TelegramAdapter(agent, settings.telegram)
+            adapters.append(telegram_adapter)
+            tasks.append(telegram_adapter.start())
         if not no_ui:
             ui_url = f"http://{settings.ui.host}:{settings.ui.port}"
             console.print(f"[green]✓[/] Web UI starting at {ui_url}")
@@ -290,6 +364,7 @@ def run(host: str = None, port: int = None, no_ui: bool = False):
                 console.print(f"[dim]Opening browser to {ui_url}...[/]")
                 webbrowser.open(ui_url)
             
+            # Run UI in thread - it blocks until closed
             tasks.append(asyncio.to_thread(launch_ui, settings=settings, server_name=settings.ui.host, server_port=settings.ui.port))
             tasks.append(launch_ui_and_open_browser())
         if not tasks:
@@ -301,7 +376,24 @@ def run(host: str = None, port: int = None, no_ui: bool = False):
         else:
             console.print()
             console.print(Panel("[bold green]🕊️ Local Pigeon is running![/]\n\nPress [bold]Ctrl+C[/] to stop.", border_style="green", box=ROUNDED))
-            await asyncio.gather(*tasks)
+            try:
+                await asyncio.gather(*tasks, return_exceptions=False)
+            except Exception as e:
+                console.print(f"[red]Error: {e}[/]")
+                import traceback
+                traceback.print_exc()
+            finally:
+                # Cleanup adapters
+                for adapter in adapters:
+                    try:
+                        await adapter.stop()
+                    except Exception:
+                        pass
+                # Cleanup agent
+                try:
+                    await agent.shutdown()
+                except Exception:
+                    pass
     
     # Register signal handlers
     signal.signal(signal.SIGINT, handle_shutdown)
@@ -496,6 +588,40 @@ def chat(model: Optional[str] = None):
             except KeyboardInterrupt: break
         console.print("\n[dim]Goodbye! 👋[/]")
     asyncio.run(loop())
+
+
+@app.command()
+def eval(
+    model: Optional[str] = typer.Option(None, "--model", "-m", help="Model to test"),
+    tags: Optional[str] = typer.Option(None, "--tags", "-t", help="Filter by tags (comma-separated)"),
+    save: Optional[str] = typer.Option(None, "--save", "-s", help="Save results to JSON file"),
+):
+    """Run tool usage evaluations."""
+    import sys
+    from pathlib import Path
+    
+    # Add project root to path so we can import evals
+    project_root = Path(__file__).resolve().parents[3]  # src/local_pigeon/cli.py -> project root
+    sys.path.insert(0, str(project_root))
+    
+    from evals import run_evals
+    
+    console.print(LOGO_SMALL)
+    console.print("[bold]Running Tool Usage Evaluations[/]\n")
+    
+    tag_list = tags.split(",") if tags else None
+    
+    async def run():
+        results = await run_evals(model=model, tags=tag_list, save_path=save)
+        passed = sum(1 for r in results if r.passed)
+        total = len(results)
+        
+        if passed == total:
+            console.print(f"\n[bold green]All {total} tests passed! 🎉[/]")
+        else:
+            console.print(f"\n[bold yellow]{passed}/{total} tests passed[/]")
+    
+    asyncio.run(run())
 
 
 @app.command()

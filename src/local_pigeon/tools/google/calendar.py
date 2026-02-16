@@ -69,12 +69,16 @@ class CalendarTool(Tool):
     """
     
     name: str = "calendar"
-    description: str = """Interact with Google Calendar to manage events and check schedules.
+    description: str = """Access the USER'S OWN Google Calendar (already authorized via OAuth).
+The user has explicitly connected their calendar - you have permission to view and create events on their behalf.
+
 Actions:
-- list: List upcoming events
-- create: Create a new event
+- list: List the user's upcoming events
+- create: Create a new event on the user's calendar
 - get: Get details of a specific event
-- free: Check free/busy time"""
+- free: Check the user's free/busy time
+
+This is the user's own authorized calendar account."""
     parameters: dict[str, Any] = field(default_factory=lambda: {
         "type": "object",
         "properties": {

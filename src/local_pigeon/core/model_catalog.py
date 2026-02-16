@@ -25,6 +25,7 @@ class ModelCategory(Enum):
     GENERAL = "general"        # Well-rounded chat
     SMALL = "small"            # Fast, lightweight
     MULTILINGUAL = "multilingual"  # Strong non-English support
+    TOOL_CALLING = "tool_calling"  # Native function/tool calling support
 
 
 class ModelBackend(Enum):
@@ -241,25 +242,46 @@ MODEL_CATALOG: list[ModelInfo] = [
     # GENERAL PURPOSE MODELS
     # -------------------------------------------------------------------------
     ModelInfo(
+        name="Llama 3.1 (8B) ⭐ Best for Tools",
+        ollama_name="llama3.1:8b",
+        gguf_repo="bartowski/Meta-Llama-3.1-8B-Instruct-GGUF",
+        gguf_file="Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf",
+        description="Meta's most tool-capable model - excellent function calling",
+        categories=[ModelCategory.GENERAL, ModelCategory.TOOL_CALLING],
+        size_label="8B",
+        context_length=131072,
+        recommended=True,
+    ),
+    ModelInfo(
+        name="Llama 3.1 (70B)",
+        ollama_name="llama3.1:70b",
+        gguf_repo=None,
+        gguf_file=None,
+        description="Large Llama 3.1 - powerful with native tools",
+        categories=[ModelCategory.GENERAL, ModelCategory.TOOL_CALLING, ModelCategory.THINKING],
+        size_label="70B",
+        context_length=131072,
+    ),
+    ModelInfo(
         name="Llama 3.2 (3B)",
         ollama_name="llama3.2:3b",
         gguf_repo="bartowski/Llama-3.2-3B-Instruct-GGUF",
         gguf_file="Llama-3.2-3B-Instruct-Q4_K_M.gguf",
         description="Meta's efficient model - great balance of speed/quality",
-        categories=[ModelCategory.GENERAL, ModelCategory.SMALL],
+        categories=[ModelCategory.GENERAL, ModelCategory.SMALL, ModelCategory.TOOL_CALLING],
         size_label="3B",
         context_length=8192,
         recommended=True,
     ),
     ModelInfo(
-        name="Llama 3.2 (8B)",
-        ollama_name="llama3.2:8b",
-        gguf_repo="bartowski/Llama-3.2-8B-Instruct-GGUF",
-        gguf_file="Llama-3.2-8B-Instruct-Q4_K_M.gguf",
-        description="Solid general-purpose model from Meta",
-        categories=[ModelCategory.GENERAL],
+        name="Llama 3.1 (8B)",
+        ollama_name="llama3.1:8b",
+        gguf_repo="bartowski/Meta-Llama-3.1-8B-Instruct-GGUF",
+        gguf_file="Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf",
+        description="Solid 8B model from Meta with 128K context",
+        categories=[ModelCategory.GENERAL, ModelCategory.TOOL_CALLING],
         size_label="8B",
-        context_length=8192,
+        context_length=131072,
     ),
     ModelInfo(
         name="Gemma 3 (4B)",
@@ -293,12 +315,22 @@ MODEL_CATALOG: list[ModelInfo] = [
         context_length=8192,
     ),
     ModelInfo(
+        name="Llama 3.2 (1B)",
+        ollama_name="llama3.2:1b",
+        gguf_repo="bartowski/Llama-3.2-1B-Instruct-GGUF",
+        gguf_file="Llama-3.2-1B-Instruct-Q4_K_M.gguf",
+        description="Tiny Llama - ultra fast responses",
+        categories=[ModelCategory.GENERAL, ModelCategory.SMALL, ModelCategory.TOOL_CALLING],
+        size_label="1B",
+        context_length=8192,
+    ),
+    ModelInfo(
         name="Mistral (7B)",
         ollama_name="mistral:7b",
         gguf_repo="TheBloke/Mistral-7B-Instruct-v0.2-GGUF",
         gguf_file="mistral-7b-instruct-v0.2.Q4_K_M.gguf",
-        description="Classic efficient model - good all-rounder",
-        categories=[ModelCategory.GENERAL],
+        description="Classic efficient model - reliable tool support",
+        categories=[ModelCategory.GENERAL, ModelCategory.TOOL_CALLING],
         size_label="7B",
         context_length=8192,
     ),
@@ -404,6 +436,104 @@ def get_small_models() -> list[ModelInfo]:
     return get_models_by_category(ModelCategory.SMALL)
 
 
+def get_tool_calling_models() -> list[ModelInfo]:
+    """Get models with native tool/function calling support."""
+    return get_models_by_category(ModelCategory.TOOL_CALLING)
+
+
+def _parse_size_to_b(size_label: str) -> float:
+    """Parse size label like '7B', '1.8B', '70B' to numeric billions."""
+    import re
+    match = re.search(r'([\d.]+)\s*B', size_label, re.IGNORECASE)
+    if match:
+        return float(match.group(1))
+    return 999  # Unknown size treated as large
+
+
+def get_starter_pack_recommendations(max_size_b: float = 11.0) -> dict[str, list[ModelInfo]]:
+    """
+    Get recommended starter models (11B or below) for each category.
+    
+    Returns dict with keys: 'vision', 'thinking', 'tool_calling', 'coding'
+    Each contains up to 4 recommended models sorted by quality/popularity.
+    """
+    def filter_by_size(models: list[ModelInfo]) -> list[ModelInfo]:
+        return [m for m in models if _parse_size_to_b(m.size_label) <= max_size_b]
+    
+    # Vision models ≤11B (prioritize recommended, then by size)
+    vision = filter_by_size(get_vision_models())
+    vision_sorted = sorted(vision, key=lambda m: (not m.recommended, _parse_size_to_b(m.size_label)))
+    
+    # Thinking models ≤11B
+    thinking = filter_by_size(get_thinking_models())
+    thinking_sorted = sorted(thinking, key=lambda m: (not m.recommended, _parse_size_to_b(m.size_label)))
+    
+    # Tool calling models ≤11B
+    tools = filter_by_size(get_tool_calling_models())
+    tools_sorted = sorted(tools, key=lambda m: (not m.recommended, _parse_size_to_b(m.size_label)))
+    
+    # Coding models ≤11B
+    coding = filter_by_size(get_coding_models())
+    coding_sorted = sorted(coding, key=lambda m: (not m.recommended, _parse_size_to_b(m.size_label)))
+    
+    return {
+        'vision': vision_sorted[:4],
+        'thinking': thinking_sorted[:4],
+        'tool_calling': tools_sorted[:4],
+        'coding': coding_sorted[:4],
+    }
+
+
+def format_starter_pack_for_display() -> str:
+    """Format starter pack as markdown for UI display."""
+    recs = get_starter_pack_recommendations()
+    
+    lines = [
+        "## 🚀 Recommended Starter Pack (11B or smaller)",
+        "",
+        "These models are optimized for consumer hardware (8-16GB RAM) and offer the best balance of quality and speed.",
+        "",
+        "### 🔧 Tool Calling (Required for Agent)",
+        "| Model | Size | Description |",
+        "|-------|------|-------------|",
+    ]
+    for m in recs['tool_calling']:
+        star = "⭐ " if m.recommended else ""
+        lines.append(f"| {star}{m.ollama_name} | {m.size_label} | {m.description} |")
+    
+    lines.extend([
+        "",
+        "### 🖼️ Vision (For Image Analysis)",
+        "| Model | Size | Description |",
+        "|-------|------|-------------|",
+    ])
+    for m in recs['vision']:
+        star = "⭐ " if m.recommended else ""
+        lines.append(f"| {star}{m.ollama_name} | {m.size_label} | {m.description} |")
+    
+    lines.extend([
+        "",
+        "### 🧠 Thinking/Reasoning",
+        "| Model | Size | Description |",
+        "|-------|------|-------------|",
+    ])
+    for m in recs['thinking']:
+        star = "⭐ " if m.recommended else ""
+        lines.append(f"| {star}{m.ollama_name} | {m.size_label} | {m.description} |")
+    
+    lines.extend([
+        "",
+        "### 💻 Coding",
+        "| Model | Size | Description |",
+        "|-------|------|-------------|",
+    ])
+    for m in recs['coding']:
+        star = "⭐ " if m.recommended else ""
+        lines.append(f"| {star}{m.ollama_name} | {m.size_label} | {m.description} |")
+    
+    return "\n".join(lines)
+
+
 def get_ollama_models() -> list[ModelInfo]:
     """Get models available via Ollama."""
     return [m for m in MODEL_CATALOG if m.supports_ollama]
@@ -441,6 +571,7 @@ def format_catalog_for_display() -> list[list[str]]:
             ModelCategory.GENERAL: "💬",
             ModelCategory.SMALL: "⚡",
             ModelCategory.MULTILINGUAL: "🌍",
+            ModelCategory.TOOL_CALLING: "🔧",
         }
         categories = " ".join(cat_emojis.get(c, "") for c in model.categories)
         

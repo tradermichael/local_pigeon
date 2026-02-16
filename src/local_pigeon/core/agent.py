@@ -15,11 +15,16 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Callable, Awaitable
 
-from local_pigeon.config import Settings, get_settings
+from local_pigeon.config import Settings, get_settings, get_data_dir
 from local_pigeon.core.llm_client import OllamaClient, Message, ToolDefinition, ToolCall, call_callback
 from local_pigeon.core.conversation import AsyncConversationManager
+from local_pigeon.core.skills import SkillsManager
+from local_pigeon.core.ralph import RALPHLoop
+from local_pigeon.core.capabilities import generate_capabilities_summary, generate_architecture_summary
 from local_pigeon.storage.memory import AsyncMemoryManager, MemoryType
 from local_pigeon.storage.failure_log import AsyncFailureLog
+from local_pigeon.storage.user_settings import UserSettingsStore
+from local_pigeon.storage.database import Database
 from local_pigeon.tools.registry import ToolRegistry, Tool
 
 
@@ -101,6 +106,29 @@ def _create_llm_client(
     )
 
 
+from enum import Enum
+
+
+class StatusType(str, Enum):
+    """Types of status events for UI transparency."""
+    THINKING = "thinking"
+    TOOL_START = "tool_start"
+    TOOL_ARGS = "tool_args"
+    TOOL_RESULT = "tool_result"
+    TOOL_ERROR = "tool_error"
+    ITERATION = "iteration"
+    APPROVAL = "approval"
+    DONE = "done"
+
+
+@dataclass
+class StatusEvent:
+    """A status event for UI transparency."""
+    type: StatusType
+    message: str
+    details: dict | None = None
+
+
 @dataclass
 class ToolResult:
     """Result from executing a tool."""
@@ -149,8 +177,18 @@ class LocalPigeonAgent:
         # Initialize LLM client (with automatic backend selection)
         self.llm = _create_llm_client(self.settings, backend)
         
+        # Build database path in data directory
+        data_dir = get_data_dir()
+        db_filename = self.settings.storage.database
+        # If it's just a filename, put it in data_dir
+        # If it's already an absolute path, use it as-is
+        from pathlib import Path
+        if Path(db_filename).is_absolute():
+            db_path = db_filename
+        else:
+            db_path = str(data_dir / db_filename)
+        
         # Initialize conversation manager
-        db_path = self.settings.storage.database
         self.conversations = AsyncConversationManager(
             db_path=db_path,
             max_history=self.settings.agent.max_history_messages,
@@ -161,6 +199,34 @@ class LocalPigeonAgent:
         
         # Initialize failure log for Ralph Loop pattern
         self.failure_log = AsyncFailureLog(db_path=db_path)
+        
+        # Initialize user settings store
+        self._database = Database(db_path=db_path)
+        self.user_settings = UserSettingsStore(database=self._database)
+        
+        # Initialize skills manager and RALPH loop for self-improvement
+        self.skills = SkillsManager(data_dir=data_dir)
+        self.ralph = RALPHLoop(
+            skills_manager=self.skills,
+            failure_log=self.failure_log,
+        )
+        
+        # Initialize heartbeat for periodic self-reflection
+        from local_pigeon.core.heartbeat import Heartbeat
+        self.heartbeat = Heartbeat(
+            agent=self,
+            interval_minutes=self.settings.agent.heartbeat_interval_minutes,
+            enabled=self.settings.agent.heartbeat_enabled,
+            auto_approve_skills=self.settings.agent.auto_approve_skills,
+        )
+        
+        # Initialize scheduler for cron-like recurring tasks
+        from local_pigeon.core.scheduler import Scheduler
+        self.scheduler = Scheduler(
+            db_path=db_path,
+            agent=self,
+            heartbeat_seconds=30.0,
+        )
         
         # Initialize tool registry
         self.tools = ToolRegistry()
@@ -185,9 +251,29 @@ class LocalPigeonAgent:
         if self._initialized:
             return
         
-        # Ensure database tables exist (sync manager handles this in __init__)
-        # Any additional async setup can go here
+        # Initialize database schema (creates tables if not exist)
+        await self._database.initialize()
+        
+        # Start heartbeat if enabled
+        if self.settings.agent.heartbeat_enabled:
+            await self.heartbeat.start()
+        
+        # Start scheduler for recurring tasks
+        await self.scheduler.start()
+        
         self._initialized = True
+    
+    async def shutdown(self) -> None:
+        """Clean shutdown of the agent."""
+        # Stop heartbeat
+        await self.heartbeat.stop()
+        
+        # Stop scheduler
+        await self.scheduler.stop()
+        
+        # Close LLM client session
+        if self.llm:
+            await self.llm.close()
     
     def _register_default_tools(self) -> None:
         """Register the default set of tools."""
@@ -243,6 +329,45 @@ class LocalPigeonAgent:
         self.tools.register(ViewFailureLogTool(failure_log=self.failure_log))
         self.tools.register(MarkFailureResolvedTool(failure_log=self.failure_log))
         self.tools.register(AnalyzeFailurePatternsTool(failure_log=self.failure_log))
+        
+        # Skills tools (RALPH loop self-improvement) - always enabled
+        from local_pigeon.tools.skills_tools import (
+            CreateSkillTool,
+            ViewSkillsTool,
+            LearnSkillTool,
+            UpdateSkillTool,
+        )
+        self.tools.register(CreateSkillTool(
+            skills_manager=self.skills,
+            auto_approve=self.settings.agent.auto_approve_skills,
+        ))
+        self.tools.register(ViewSkillsTool(skills_manager=self.skills))
+        self.tools.register(LearnSkillTool(skills_manager=self.skills))
+        self.tools.register(UpdateSkillTool(skills_manager=self.skills))
+        
+        # Memory tools - always enabled
+        from local_pigeon.tools.memory_tools import (
+            RememberTool,
+            RecallTool,
+            ListMemoriesTool,
+            ForgetTool,
+        )
+        self.tools.register(RememberTool(memory_manager=self.memory))
+        self.tools.register(RecallTool(memory_manager=self.memory))
+        self.tools.register(ListMemoriesTool(memory_manager=self.memory))
+        self.tools.register(ForgetTool(memory_manager=self.memory))
+        
+        # Schedule tools - always enabled
+        from local_pigeon.tools.schedule_tools import (
+            CreateScheduleTool,
+            ListSchedulesTool,
+            CancelScheduleTool,
+            PauseScheduleTool,
+        )
+        self.tools.register(CreateScheduleTool(scheduler=self.scheduler))
+        self.tools.register(ListSchedulesTool(scheduler=self.scheduler))
+        self.tools.register(CancelScheduleTool(scheduler=self.scheduler))
+        self.tools.register(PauseScheduleTool(scheduler=self.scheduler))
     
     def reload_tools(self) -> list[str]:
         """
@@ -260,7 +385,7 @@ class LocalPigeonAgent:
         # Re-register all tools
         self._register_default_tools()
         
-        return self.tools.list_tools()
+        return [tool.name for tool in self.tools.list_tools()]
     
     def register_discord_tools(self, bot: Any) -> None:
         """
@@ -304,8 +429,18 @@ class LocalPigeonAgent:
         """
         self._approval_handlers[platform] = handler
     
-    def get_system_prompt(self) -> str:
-        """Get the base system prompt with current time and tool information."""
+    def get_system_prompt(
+        self,
+        bot_name: str | None = None,
+        user_name: str | None = None,
+    ) -> str:
+        """
+        Get the base system prompt with current time and tool information.
+        
+        Args:
+            bot_name: Name for the bot (defaults to config default)
+            user_name: Name for the user (optional, for personalization)
+        """
         from datetime import datetime
         
         # Get current date/time in user-friendly format
@@ -321,25 +456,68 @@ Timezone: {datetime.now().astimezone().tzinfo}
 
 """
         
-        base_prompt = time_context + self.settings.agent.system_prompt
+        # Get effective bot name
+        effective_bot_name = bot_name or self.settings.agent.default_bot_name
         
+        # Format the system prompt with bot name
+        system_prompt = self.settings.agent.system_prompt.format(
+            bot_name=effective_bot_name,
+            user_name=user_name or "the user",
+        )
+        
+        # Add user name context if provided
+        if user_name:
+            system_prompt += f"\n\nIMPORTANT: The user prefers to be called \"{user_name}\". Address them by this name when appropriate."
+        
+        base_prompt = time_context + system_prompt
+        
+        # Add capabilities summary with architecture context
+        # This helps the model understand what it IS and what it CAN DO
         if self.settings.agent.tools_enabled and self.tools.list_tools():
-            tool_list = "\n".join(
-                f"- {tool.name}: {tool.description}"
-                for tool in self.tools.list_tools()
+            available_tools = [tool.name for tool in self.tools.list_tools()]
+            capabilities = generate_capabilities_summary(
+                available_tools=available_tools,
+                include_examples=True,
             )
-            base_prompt += f"\n\nAvailable tools:\n{tool_list}"
+            base_prompt += f"\n\n{capabilities}"
+            
+            # For reasoning models, add architecture context
+            if any(x in self.llm.model.lower() for x in ["deepseek", "r1", "qwen"]):
+                base_prompt += f"\n{generate_architecture_summary()}"
         
         return base_prompt
     
-    async def get_personalized_system_prompt(self, user_id: str) -> str:
-        """Get the system prompt personalized with user memories."""
-        base_prompt = self.get_system_prompt()
+    async def get_personalized_system_prompt(
+        self,
+        user_id: str,
+        user_message: str | None = None,
+    ) -> str:
+        """
+        Get the system prompt personalized with user settings, memories, and skills.
+        
+        Args:
+            user_id: User identifier for personalization
+            user_message: Optional user message to find relevant skills
+        """
+        # Get user settings for personalization
+        user_settings = await self.user_settings.get(user_id)
+        
+        bot_name = user_settings.bot_name
+        user_name = user_settings.user_display_name if user_settings.user_display_name else None
+        
+        base_prompt = self.get_system_prompt(bot_name=bot_name, user_name=user_name)
         
         # Add user memories
         memory_context = await self.memory.format_memories_for_prompt(user_id)
         if memory_context:
             base_prompt += memory_context
+        
+        # Add relevant skills from RALPH loop
+        # This teaches the model how to correctly use tools based on learned patterns
+        if user_message:
+            skill_context = self.ralph.get_enhanced_prompt(user_message)
+            if skill_context:
+                base_prompt += skill_context
         
         return base_prompt
     
@@ -350,6 +528,7 @@ Timezone: {datetime.now().astimezone().tzinfo}
         session_id: str | None = None,
         platform: str = "cli",
         stream_callback: Callable[[str], None] | None = None,
+        status_callback: Callable[[StatusEvent], None] | None = None,
         images: list[str] | None = None,
     ) -> str:
         """
@@ -369,8 +548,9 @@ Timezone: {datetime.now().astimezone().tzinfo}
         # If images are provided, check if we need to switch to a vision model
         if images:
             if not self.llm.is_vision_model():
-                # Try to find a vision model
-                vision_model = self.llm.get_vision_model()
+                # Try to find a vision model (prefer user's configured choice)
+                preferred_vision = self.settings.ollama.vision_model or None
+                vision_model = self.llm.get_vision_model(preferred=preferred_vision)
                 if vision_model:
                     # Temporarily switch to vision model for this request
                     original_model = self.llm.model
@@ -394,8 +574,8 @@ Timezone: {datetime.now().astimezone().tzinfo}
         # Get conversation history
         history = await self.conversations.get_messages(conversation_id)
         
-        # Get personalized system prompt with user memories
-        system_prompt = await self.get_personalized_system_prompt(user_id)
+        # Get personalized system prompt with user memories and relevant skills
+        system_prompt = await self.get_personalized_system_prompt(user_id, user_message)
         
         # Build messages for the LLM
         # Include images in the user message if provided
@@ -419,14 +599,31 @@ Timezone: {datetime.now().astimezone().tzinfo}
             tools = self.tools.get_tool_definitions()
         
         # Run the agentic loop
-        response = await self._agentic_loop(
+        response, tool_calls_made = await self._agentic_loop(
             messages=messages,
             tools=tools,
             user_id=user_id,
             platform=platform,
             stream_callback=stream_callback,
+            status_callback=status_callback,
             max_iterations=self.settings.agent.max_tool_iterations,
         )
+        
+        # RALPH Loop: Check if model should have used tools but didn't
+        # This allows the agent to learn from failures and improve over time
+        if tools and not tool_calls_made:
+            expected_tool = self.ralph.detect_expected_tool(user_message)
+            if expected_tool and self.ralph.detect_refusal(response):
+                # Model refused to use a tool it should have used - learn from this
+                skill = self.ralph.learn_from_failure(
+                    user_message=user_message,
+                    model_response=response,
+                )
+                if skill and stream_callback:
+                    await call_callback(
+                        stream_callback,
+                        f"\n💡 RALPH: Learned new pattern for '{skill.tool}' tool\n"
+                    )
         
         # Save assistant response
         await self.conversations.add_message(
@@ -443,8 +640,9 @@ Timezone: {datetime.now().astimezone().tzinfo}
         user_id: str,
         platform: str,
         stream_callback: Callable[[str], None] | None = None,
+        status_callback: Callable[[StatusEvent], None] | None = None,
         max_iterations: int = 10,
-    ) -> str:
+    ) -> tuple[str, bool]:
         """
         Run the agentic orchestrator loop, executing tools until task completion.
         
@@ -458,12 +656,38 @@ Timezone: {datetime.now().astimezone().tzinfo}
         3. Execution: We run the tool and get results
         4. Re-entry: Feed results back to model
         5. Repeat until model provides final answer without tool calls
+        
+        Returns:
+            Tuple of (response_text, tool_calls_made)
         """
         iteration = 0
         tool_results_this_session = []
         
+        # Helper to emit status events
+        async def emit_status(type: StatusType, message: str, details: dict | None = None):
+            if status_callback:
+                event = StatusEvent(type=type, message=message, details=details)
+                if asyncio.iscoroutinefunction(status_callback):
+                    await status_callback(event)
+                else:
+                    status_callback(event)
+        
         while iteration < max_iterations:
             iteration += 1
+            
+            # Emit iteration status if we're doing multiple iterations
+            if iteration > 1:
+                await emit_status(
+                    StatusType.ITERATION,
+                    f"Analyzing tool results (step {iteration}/{max_iterations})...",
+                    {"iteration": iteration, "max": max_iterations}
+                )
+            elif tools:
+                await emit_status(
+                    StatusType.THINKING,
+                    "Thinking...",
+                    {"has_tools": True}
+                )
             
             # Get LLM response
             if stream_callback and iteration == 1 and not tool_results_this_session:
@@ -484,19 +708,60 @@ Timezone: {datetime.now().astimezone().tzinfo}
                 # Model provided a final answer
                 final_response = response.content
                 
-                # If we executed tools, prepend a brief status
-                if tool_results_this_session and stream_callback:
-                    # Stream the final response
-                    await call_callback(stream_callback, final_response)
+                # Handle empty response (some models return empty on first request)
+                if not final_response or not final_response.strip():
+                    # If this is the first iteration with no tools called, retry once
+                    if iteration == 1 and not tool_results_this_session:
+                        # Try one more time - some models need a "warm-up"
+                        response = await self.llm.achat(
+                            messages=messages,
+                            tools=tools,
+                        )
+                        if not response.tool_calls:
+                            final_response = response.content
+                        else:
+                            # Model now wants to use tools - continue loop
+                            messages.append(response)
+                            continue
                 
-                return final_response
+                # If we executed tools, prepend a brief status
+                if tool_results_this_session:
+                    await emit_status(
+                        StatusType.DONE,
+                        f"Completed using {len(tool_results_this_session)} tool(s)",
+                        {"tools_used": [r.name for r in tool_results_this_session]}
+                    )
+                    if stream_callback:
+                        # Stream the final response
+                        await call_callback(stream_callback, final_response)
+                
+                return final_response, len(tool_results_this_session) > 0
             
             # Model wants to use tools - add assistant message
             messages.append(response)
             
             # Execute each tool call
             for tool_call in response.tool_calls:
-                # Notify user that tool is being executed
+                # Emit detailed status about tool being used
+                await emit_status(
+                    StatusType.TOOL_START,
+                    f"Using {tool_call.name}",
+                    {"tool": tool_call.name}
+                )
+                
+                # Format arguments nicely for status
+                if tool_call.arguments:
+                    args_display = ", ".join(
+                        f"{k}={repr(v)[:50]}..." if len(repr(v)) > 50 else f"{k}={repr(v)}"
+                        for k, v in tool_call.arguments.items()
+                    )
+                    await emit_status(
+                        StatusType.TOOL_ARGS,
+                        f"→ {args_display}",
+                        {"tool": tool_call.name, "arguments": tool_call.arguments}
+                    )
+                
+                # Notify user that tool is being executed (for stream output)
                 if stream_callback:
                     await call_callback(stream_callback, f"\n🔧 Using {tool_call.name}...\n")
                 
@@ -527,6 +792,11 @@ Timezone: {datetime.now().astimezone().tzinfo}
                             success=False,
                         )
                         tool_results_this_session.append(result)
+                        await emit_status(
+                            StatusType.TOOL_ERROR,
+                            f"❌ {tool_call.name}: Skipped (checkpoint mode)",
+                            {"tool": tool_call.name, "success": False}
+                        )
                         messages.append(Message(
                             role="tool",
                             content=result.result,
@@ -576,6 +846,22 @@ Timezone: {datetime.now().astimezone().tzinfo}
                 # Track tool results
                 tool_results_this_session.append(result)
                 
+                # Emit tool result status
+                if result.success:
+                    # Truncate result for display
+                    result_preview = result.result[:100] + "..." if len(result.result) > 100 else result.result
+                    await emit_status(
+                        StatusType.TOOL_RESULT,
+                        f"✓ {result.name}: {result_preview}",
+                        {"tool": result.name, "success": True, "result": result.result}
+                    )
+                else:
+                    await emit_status(
+                        StatusType.TOOL_ERROR,
+                        f"✗ {result.name}: {result.result[:100]}",
+                        {"tool": result.name, "success": False, "error": result.result}
+                    )
+                
                 # Add tool result to conversation for next iteration
                 messages.append(Message(
                     role="tool",
@@ -591,7 +877,8 @@ Timezone: {datetime.now().astimezone().tzinfo}
             f"I've completed {iteration} steps using tools but need more iterations to finish. "
             "Here's what I've done so far:\n"
             + "\n".join(f"- {r.name}: {'✓' if r.success else '✗'}" for r in tool_results_this_session)
-            + "\n\nPlease let me know if you'd like me to continue."
+            + "\n\nPlease let me know if you'd like me to continue.",
+            True,  # Tools were called
         )
     
     async def _execute_tool(

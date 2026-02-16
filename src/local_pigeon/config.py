@@ -94,6 +94,7 @@ class OllamaSettings(BaseSettings):
     
     host: str = Field(default="http://localhost:11434", description="Ollama API host")
     model: str = Field(default="gemma3:latest", description="Default model to use")
+    vision_model: str = Field(default="", description="Vision model for image processing (auto-detected if empty)")
     context_length: int = Field(default=8192, description="Context window size")
     temperature: float = Field(default=0.7, ge=0.0, le=2.0, description="Generation temperature")
     max_tokens: int = Field(default=2048, description="Max tokens to generate")
@@ -256,19 +257,37 @@ class UISettings(BaseSettings):
 class AgentSettings(BaseSettings):
     """Agent behavior settings."""
     
+    default_bot_name: str = Field(
+        default="Pigeon",
+        description="Default name for the bot (can be overridden per-user)"
+    )
+    
     system_prompt: str = Field(
-        default="""You are Local Pigeon, a helpful AI assistant running locally on the user's device.
+        default="""You are {bot_name}, a helpful AI assistant running locally on the user's device.
 
-IMPORTANT: You have access to tools - see the "Available tools" list below. You MUST use them when appropriate.
+CRITICAL INSTRUCTION - TOOL USAGE:
+You have tools available. When the user asks for something a tool can do, YOU MUST CALL THE TOOL.
 
-DO NOT say "I don't have access to real-time information" or "I can't do that" if you have a tool that can help. USE THE TOOL INSTEAD.
+DO NOT:
+- Say "I can't access your email" - you CAN, use the gmail tool
+- Say "I don't have real-time information" - you DO, use web_search
+- Explain how to do things manually - just DO IT with the tool
+- Refuse due to privacy concerns - the user authorized these tools
 
-When you need information you don't have (weather, news, current events, prices, etc.), ALWAYS call the appropriate tool rather than declining.
+DO:
+- Call gmail tool when user asks about emails
+- Call calendar tool when user asks about events/schedule
+- Call web_search when user needs current information
+- Call drive tool when user asks about their files
 
-Be helpful, concise, and respect user privacy.
-When using tools, briefly explain what you're doing.
-For payments above the approval threshold, request user confirmation.""",
-        description="System prompt for the agent"
+USER-AUTHORIZED SERVICES (gmail, calendar, drive):
+The user has already connected and authorized these accounts via OAuth.
+You have full permission to read, search, and interact with THEIR OWN data.
+This is NOT someone else's data - it's the user's own authorized accounts.
+
+When the user says "check my email" or "what's on my calendar", immediately call the tool.
+Do not ask for permission, do not explain privacy concerns - just use the tool.""",
+        description="System prompt for the agent (use {bot_name} and {user_name} as placeholders)"
     )
     max_history_messages: int = Field(default=20, ge=1, description="Max history messages")
     tools_enabled: bool = Field(default=True, description="Enable tool usage")
@@ -281,6 +300,22 @@ For payments above the approval threshold, request user confirmation.""",
         ge=1,
         le=50,
         description="Maximum tool execution iterations per request"
+    )
+    
+    # Heartbeat / Self-improvement settings
+    heartbeat_enabled: bool = Field(
+        default=False,
+        description="Enable periodic self-reflection for skill learning"
+    )
+    heartbeat_interval_minutes: int = Field(
+        default=5,
+        ge=1,
+        le=60,
+        description="Minutes between heartbeat reflections"
+    )
+    auto_approve_skills: bool = Field(
+        default=False,
+        description="Auto-approve skills proposed by the agent (vs requiring user approval)"
     )
 
 
@@ -384,6 +419,43 @@ class Settings(BaseSettings):
                 if "enabled" in drive_config and not os.environ.get("GOOGLE_DRIVE_ENABLED"):
                     settings.google.drive_enabled = drive_config["enabled"]
         
+        # Apply env vars for nested settings (pydantic nested models don't auto-read env vars)
+        # Discord
+        if os.environ.get("DISCORD_ENABLED"):
+            settings.discord.enabled = os.environ.get("DISCORD_ENABLED", "").lower() in ("true", "1", "yes")
+        if os.environ.get("DISCORD_BOT_TOKEN"):
+            settings.discord.bot_token = os.environ.get("DISCORD_BOT_TOKEN", "")
+        if os.environ.get("DISCORD_APP_ID"):
+            settings.discord.app_id = os.environ.get("DISCORD_APP_ID", "")
+        if os.environ.get("DISCORD_MENTION_ONLY"):
+            settings.discord.mention_only = os.environ.get("DISCORD_MENTION_ONLY", "").lower() in ("true", "1", "yes")
+        
+        # Telegram
+        if os.environ.get("TELEGRAM_ENABLED"):
+            settings.telegram.enabled = os.environ.get("TELEGRAM_ENABLED", "").lower() in ("true", "1", "yes")
+        if os.environ.get("TELEGRAM_BOT_TOKEN"):
+            settings.telegram.bot_token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+        
+        # Google
+        if os.environ.get("GOOGLE_GMAIL_ENABLED"):
+            settings.google.gmail_enabled = os.environ.get("GOOGLE_GMAIL_ENABLED", "").lower() in ("true", "1", "yes")
+        if os.environ.get("GOOGLE_CALENDAR_ENABLED"):
+            settings.google.calendar_enabled = os.environ.get("GOOGLE_CALENDAR_ENABLED", "").lower() in ("true", "1", "yes")
+        if os.environ.get("GOOGLE_DRIVE_ENABLED"):
+            settings.google.drive_enabled = os.environ.get("GOOGLE_DRIVE_ENABLED", "").lower() in ("true", "1", "yes")
+        if os.environ.get("GOOGLE_CREDENTIALS_PATH"):
+            settings.google.credentials_path = os.environ.get("GOOGLE_CREDENTIALS_PATH", "")
+        
+        # Stripe
+        if os.environ.get("STRIPE_ENABLED"):
+            settings.payments.stripe.enabled = os.environ.get("STRIPE_ENABLED", "").lower() in ("true", "1", "yes")
+        if os.environ.get("STRIPE_API_KEY"):
+            settings.payments.stripe.api_key = os.environ.get("STRIPE_API_KEY", "")
+        
+        # Ollama model
+        if os.environ.get("OLLAMA_MODEL"):
+            settings.ollama.model = os.environ.get("OLLAMA_MODEL", "")
+        
         return settings
 
 
@@ -401,16 +473,31 @@ def ensure_data_dir() -> Path:
     Returns:
         Path to the data directory
     """
-    data_dir = get_data_dir()  # This creates the directory
+    data_dir = get_data_dir()  # This creates the main directory
     
-    # Ensure .env file exists
+    # Create subdirectories
+    subdirs = ["models", "logs", "backups", "skills", "skills/builtin", "skills/learned", "skills/custom"]
+    for subdir in subdirs:
+        (data_dir / subdir).mkdir(parents=True, exist_ok=True)
+    
+    # Ensure .env file exists with helpful template
     env_path = data_dir / ".env"
     if not env_path.exists():
         from datetime import datetime
         with open(env_path, "w") as f:
             f.write(f"# Local Pigeon Configuration\n")
             f.write(f"# Initialized: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-            f.write(f"# Data directory: {data_dir}\n\n")
+            f.write(f"# Data directory: {data_dir}\n")
+            f.write(f"#\n")
+            f.write(f"# Settings are saved here automatically when you use the UI.\n")
+            f.write(f"# You can also edit this file manually.\n")
+            f.write(f"#\n")
+            f.write(f"# Examples:\n")
+            f.write(f"# OLLAMA_MODEL=deepseek-r1:7b\n")
+            f.write(f"# DISCORD_ENABLED=true\n")
+            f.write(f"# DISCORD_BOT_TOKEN=your_token_here\n")
+            f.write(f"# GOOGLE_GMAIL_ENABLED=true\n")
+            f.write(f"\n")
     
     return data_dir
 

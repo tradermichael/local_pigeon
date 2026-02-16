@@ -76,12 +76,16 @@ class GmailTool(Tool):
     """
     
     name: str = "gmail"
-    description: str = """Interact with Gmail to read, search, and send emails.
+    description: str = """Access the USER'S OWN Gmail account (already authorized via OAuth).
+The user has explicitly connected their Gmail - you have permission to read, search, and send emails on their behalf.
+
 Actions:
-- list: List recent emails from inbox
-- search: Search emails with a query
+- list: List the user's recent emails from their inbox
+- search: Search the user's emails with a query
 - read: Read a specific email by ID
-- send: Send an email"""
+- send: Send an email from the user's account
+
+This is NOT someone else's email - this is the user's own authorized Gmail account."""
     parameters: dict[str, Any] = field(default_factory=lambda: {
         "type": "object",
         "properties": {

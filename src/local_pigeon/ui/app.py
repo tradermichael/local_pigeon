@@ -20,6 +20,17 @@ from pathlib import Path
 from typing import Any, Generator
 import gradio as gr
 
+# Try to import themes (may not be available in all gradio versions)
+try:
+    from gradio.themes import Soft as SoftTheme
+    _has_themes = True
+except ImportError:
+    _has_themes = False
+
+# Check Gradio version for API compatibility
+_gradio_version = tuple(int(x) for x in gr.__version__.split('.')[:2])
+_gradio_6_plus = _gradio_version >= (6, 0)
+
 from local_pigeon import __version__
 from local_pigeon.config import Settings, get_data_dir, ensure_data_dir, delete_local_data
 
@@ -54,9 +65,416 @@ def create_app(
             await agent.initialize()
         return agent
     
-    with gr.Blocks(
-        title="Local Pigeon",
-    ) as app:
+    # Modern dark theme CSS
+    gemini_css = """
+    /* Root variables for dark theming */
+    :root {
+        --primary-color: #8ab4f8;
+        --primary-hover: #aecbfa;
+        --bg-primary: #1e1e2e;
+        --bg-secondary: #2d2d3d;
+        --bg-tertiary: #3d3d4d;
+        --bg-chat: #252535;
+        --text-primary: #f4f4f5;
+        --text-secondary: #d4d4d8;
+        --text-muted: #a1a1aa;
+        --border-color: #3f3f46;
+        --shadow-sm: 0 1px 3px rgba(0,0,0,0.3);
+        --shadow-md: 0 4px 12px rgba(0,0,0,0.4);
+        --radius-sm: 8px;
+        --radius-md: 12px;
+        --radius-lg: 20px;
+        --accent-blue: #3b82f6;
+        --accent-green: #22c55e;
+        --accent-purple: #a855f7;
+    }
+    
+    /* Global text color */
+    body, .gradio-container, .gradio-container * {
+        color: var(--text-primary) !important;
+    }
+    
+    /* Main container - full width */
+    .gradio-container {
+        background: var(--bg-primary) !important;
+        font-family: 'Inter', 'SF Pro Display', 'Segoe UI', system-ui, sans-serif !important;
+        max-width: 100% !important;
+        padding: 0 !important;
+        margin: 0 !important;
+    }
+    
+    /* Make all tabs same width */
+    .tabs {
+        max-width: 100% !important;
+        width: 100% !important;
+    }
+    
+    .tabitem {
+        max-width: 100% !important;
+        width: 100% !important;
+        padding: 24px !important;
+    }
+    
+    /* Chat container styling */
+    .chatbot {
+        background: var(--bg-secondary) !important;
+        border: 1px solid var(--border-color) !important;
+        border-radius: var(--radius-lg) !important;
+        box-shadow: var(--shadow-sm) !important;
+        min-height: 60vh !important;
+        max-height: 70vh !important;
+    }
+    
+    /* Gradio 4.x message bubbles */
+    .chatbot .message-bubble-border {
+        border: none !important;
+    }
+    
+    .chatbot .message-row .message {
+        border-radius: var(--radius-md) !important;
+        padding: 14px 18px !important;
+        box-shadow: none !important;
+        line-height: 1.6 !important;
+        border-left: none !important;
+        border-right: none !important;
+        caret-color: transparent !important;
+    }
+    
+    /* Disable contenteditable styling but allow selection */
+    .chatbot [contenteditable] {
+        caret-color: transparent !important;
+        outline: none !important;
+    }
+    
+    .chatbot [contenteditable]:focus {
+        outline: none !important;
+        border: none !important;
+    }
+    
+    /* Remove any selection/edit indicators */
+    .chatbot .message-row .message::before,
+    .chatbot .message-row .message::after,
+    .chatbot .message::before,
+    .chatbot .message::after {
+        display: none !important;
+        content: none !important;
+        border: none !important;
+    }
+    
+    /* Hide edit mode indicators/carets */
+    .chatbot .edit-button,
+    .chatbot .edit-buttons,
+    .chatbot [class*="edit"],
+    .chatbot .message-wrap::before,
+    .chatbot .message-wrap::after {
+        display: none !important;
+    }
+    
+    /* Remove left/right borders that appear as lines */
+    .chatbot .message-wrap,
+    .chatbot .message-content,
+    .chatbot .prose {
+        border-left: none !important;
+        border-right: none !important;
+    }
+    
+    /* Hide caret/cursor indicators */
+    .chatbot .caret,
+    .chatbot [class*="caret"],
+    .chatbot [class*="cursor"] {
+        display: none !important;
+    }
+    
+    /* Remove edit mode borders */
+    .chatbot [data-testid="bot"], .chatbot [data-testid="user"] {
+        border-left: none !important;
+        border-right: none !important;
+    }
+    
+    .chatbot .prose {
+        border: none !important;
+    }
+    
+    /* Aggressively hide any vertical line artifacts inside bubbles */
+    .chatbot .message * {
+        border-left: none !important;
+        border-right: none !important;
+    }
+    
+    /* Hide any icons/indicators inside message content */
+    .chatbot .message svg:not(.prose svg),
+    .chatbot .message-content > button,
+    .chatbot .message-content > .icon,
+    .chatbot .bubble-wrap > button {
+        display: none !important;
+    }
+    
+    /* Ensure text spans have no borders */
+    .chatbot .message span,
+    .chatbot .message p,
+    .chatbot .message div:not(.prose) {
+        border-left: none !important;
+        border-right: none !important;
+        border-top: none !important;
+        border-bottom: none !important;
+    }
+    
+    /* User messages - right side, accent color */
+    .chatbot .message-row.user-row .message {
+        background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%) !important;
+        color: white !important;
+        border-radius: var(--radius-md) var(--radius-md) 4px var(--radius-md) !important;
+        border: none !important;
+    }
+    
+    /* Assistant messages - left side, dark surface */
+    .chatbot .message-row.bot-row .message {
+        background: var(--bg-tertiary) !important;
+        color: var(--text-primary) !important;
+        border: 1px solid var(--border-color) !important;
+        border-radius: var(--radius-md) var(--radius-md) var(--radius-md) 4px !important;
+    }
+    
+    /* Remove avatar space when no avatars */
+    .chatbot .avatar-container,
+    .chatbot .avatar-image,
+    .chatbot .avatar,
+    .chatbot [class*="avatar"],
+    .chatbot .bot-message > img:first-child,
+    .chatbot .user-message > img:first-child {
+        display: none !important;
+        width: 0 !important;
+        height: 0 !important;
+        min-width: 0 !important;
+        min-height: 0 !important;
+        padding: 0 !important;
+        margin: 0 !important;
+    }
+    
+    /* Hide any message index/number markers */
+    .chatbot .message-row::before,
+    .chatbot .message-row::after,
+    .chatbot .bubble-wrap::before,
+    .chatbot .bubble-wrap::after {
+        display: none !important;
+        content: none !important;
+    }
+    
+    /* Input area styling */
+    textarea, input[type="text"], input[type="number"] {
+        border-radius: var(--radius-md) !important;
+        border: 1px solid var(--border-color) !important;
+        padding: 12px 16px !important;
+        font-size: 14px !important;
+        background: var(--bg-tertiary) !important;
+        color: var(--text-primary) !important;
+        transition: border-color 0.2s, box-shadow 0.2s !important;
+    }
+    
+    textarea:focus, input:focus {
+        border-color: var(--primary-color) !important;
+        box-shadow: 0 0 0 2px rgba(138, 180, 248, 0.2) !important;
+        outline: none !important;
+    }
+    
+    /* Placeholder text */
+    ::placeholder {
+        color: var(--text-muted) !important;
+        opacity: 1 !important;
+    }
+    
+    /* Primary button styling */
+    .primary, button.primary {
+        background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%) !important;
+        border: none !important;
+        border-radius: var(--radius-md) !important;
+        padding: 10px 24px !important;
+        font-weight: 500 !important;
+        font-size: 14px !important;
+        color: white !important;
+        transition: all 0.2s ease !important;
+        box-shadow: var(--shadow-sm) !important;
+    }
+    
+    .primary:hover, button.primary:hover {
+        background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%) !important;
+        box-shadow: var(--shadow-md) !important;
+        transform: translateY(-1px) !important;
+    }
+    
+    /* Secondary buttons */
+    button, .secondary {
+        border-radius: var(--radius-md) !important;
+        border: 1px solid var(--border-color) !important;
+        background: var(--bg-tertiary) !important;
+        color: var(--text-primary) !important;
+        transition: all 0.15s ease !important;
+    }
+    
+    button:hover {
+        background: var(--bg-secondary) !important;
+        border-color: var(--text-secondary) !important;
+    }
+    
+    /* Tabs styling */
+    .tabs {
+        background: transparent !important;
+        border: none !important;
+    }
+    
+    .tab-nav {
+        background: var(--bg-secondary) !important;
+        border-radius: var(--radius-md) var(--radius-md) 0 0 !important;
+        border-bottom: 1px solid var(--border-color) !important;
+        padding: 8px 8px 0 !important;
+        gap: 4px !important;
+    }
+    
+    .tab-nav button {
+        border-radius: var(--radius-sm) var(--radius-sm) 0 0 !important;
+        padding: 10px 20px !important;
+        font-weight: 500 !important;
+        color: var(--text-secondary) !important;
+        border: none !important;
+        background: transparent !important;
+    }
+    
+    .tab-nav button.selected {
+        background: var(--bg-primary) !important;
+        color: var(--primary-color) !important;
+        border-bottom: 2px solid var(--primary-color) !important;
+    }
+    
+    /* Panel/Card styling */
+    .panel, .block, .form {
+        border-radius: var(--radius-md) !important;
+        border: 1px solid var(--border-color) !important;
+        background: var(--bg-secondary) !important;
+        box-shadow: var(--shadow-sm) !important;
+    }
+    
+    /* Accordions */
+    .accordion {
+        background: var(--bg-secondary) !important;
+        border: 1px solid var(--border-color) !important;
+        border-radius: var(--radius-md) !important;
+    }
+    
+    /* Headers */
+    h1, h2, h3, h4, h5, h6 {
+        color: var(--text-primary) !important;
+        font-weight: 600 !important;
+    }
+    
+    /* Labels */
+    label, .label-wrap {
+        color: var(--text-primary) !important;
+        font-weight: 500 !important;
+    }
+    
+    /* Markdown text */
+    .prose, .markdown-body, p {
+        color: var(--text-primary) !important;
+    }
+    
+    /* Info/description text */
+    .info-text, span.info, .wrap .info, .description {
+        color: var(--text-secondary) !important;
+    }
+    
+    /* Dropdown styling */
+    .dropdown, select {
+        border-radius: var(--radius-sm) !important;
+        border: 1px solid var(--border-color) !important;
+        background: var(--bg-tertiary) !important;
+        color: var(--text-primary) !important;
+    }
+    
+    /* Dropdown options */
+    .dropdown option, select option, .options, .option {
+        color: var(--text-primary) !important;
+        background: var(--bg-tertiary) !important;
+    }
+    
+    /* DataTable */
+    table {
+        background: var(--bg-secondary) !important;
+        color: var(--text-primary) !important;
+    }
+    
+    th {
+        background: var(--bg-tertiary) !important;
+        color: var(--text-primary) !important;
+    }
+    
+    td {
+        border-color: var(--border-color) !important;
+    }
+    
+    /* Slider styling */
+    input[type="range"] {
+        accent-color: var(--primary-color) !important;
+    }
+    
+    /* Chat header bar */
+    .chat-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 12px 16px;
+        background: var(--bg-secondary);
+        border-radius: var(--radius-md);
+        margin-bottom: 12px;
+        border: 1px solid var(--border-color);
+    }
+    
+    /* Model selector in header */
+    .model-selector {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+    }
+    
+    /* Smooth scrollbar */
+    ::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+    }
+    
+    ::-webkit-scrollbar-track {
+        background: var(--bg-primary);
+        border-radius: 4px;
+    }
+    
+    ::-webkit-scrollbar-thumb {
+        background: var(--border-color);
+        border-radius: 4px;
+    }
+    
+    ::-webkit-scrollbar-thumb:hover {
+        background: var(--text-secondary);
+    }
+    
+    /* Info text */
+    .info {
+        color: var(--text-muted) !important;
+        font-size: 12px !important;
+    }
+    """
+    
+    # Create theme if available
+    theme = SoftTheme(primary_hue="blue", secondary_hue="slate") if _has_themes else None
+    
+    # Gradio 6.0+ requires theme/css in launch(), older versions use Blocks()
+    blocks_kwargs = {"title": "Local Pigeon"}
+    if not _gradio_6_plus:
+        blocks_kwargs["theme"] = theme
+        blocks_kwargs["css"] = gemini_css
+    
+    with gr.Blocks(**blocks_kwargs) as app:
+        # Store for launch() in Gradio 6.0+
+        app._lp_theme = theme
+        app._lp_css = gemini_css
         # State
         conversation_state = gr.State([])
         
@@ -72,10 +490,31 @@ def create_app(
         with gr.Tabs():
             # Chat Tab
             with gr.Tab("💬 Chat"):
+                # Header bar with model selector on the right
+                with gr.Row():
+                    with gr.Column(scale=3):
+                        gr.Markdown("### Conversation")
+                    with gr.Column(scale=2):
+                        with gr.Row():
+                            chat_model_dropdown = gr.Dropdown(
+                                label="Model",
+                                choices=[settings.ollama.model],
+                                value=settings.ollama.model,
+                                interactive=True,
+                                scale=2,
+                                container=False,
+                            )
+                            chat_refresh_btn = gr.Button("🔄", scale=0, min_width=40)
+                            clear_btn = gr.Button("🗑️", scale=0, min_width=40)
+                            chat_settings_btn = gr.Button("⚙️", scale=0, min_width=40)
+                
                 chatbot = gr.Chatbot(
-                    label="Conversation",
+                    label=None,
                     elem_classes="chatbot",
                     height=500,
+                    show_label=False,
+                    avatar_images=(None, None),
+                    editable=None,
                 )
                 
                 with gr.Row():
@@ -84,33 +523,41 @@ def create_app(
                         placeholder="Type your message here...",
                         lines=2,
                         scale=4,
+                        show_label=False,
                     )
                     send_btn = gr.Button("Send", variant="primary", scale=1)
                 
-                with gr.Accordion("🎤 Voice Input", open=False):
-                    with gr.Row():
-                        voice_input = gr.Audio(
-                            sources=["microphone"],
-                            type="filepath",
-                            label="Click to record",
-                            scale=2,
-                        )
-                        voice_status = gr.Textbox(
-                            label="Transcription",
-                            placeholder="Your speech will appear here...",
-                            interactive=False,
-                            scale=3,
-                        )
-                
                 with gr.Row():
-                    clear_btn = gr.Button("🗑️ Clear History")
-                    model_dropdown = gr.Dropdown(
-                        label="Model",
-                        choices=[settings.ollama.model],
-                        value=settings.ollama.model,
-                        interactive=True,
+                    voice_input = gr.Audio(
+                        sources=["microphone"],
+                        type="filepath",
+                        label="🎤",
+                        show_label=True,
+                        scale=1,
+                        min_width=60,
+                        waveform_options=gr.WaveformOptions(
+                            waveform_color="#3b82f6",
+                            waveform_progress_color="#2563eb",
+                        ),
                     )
-                    refresh_models_btn = gr.Button("🔄 Refresh Models")
+                
+                # Settings popup (hidden by default)
+                with gr.Accordion("Model Settings", open=False, visible=True) as chat_settings_accordion:
+                    with gr.Row():
+                        vision_dropdown = gr.Dropdown(
+                            label="Vision Model (for images)",
+                            choices=["(auto-detect)"],
+                            value="(auto-detect)",
+                            interactive=True,
+                        )
+                    with gr.Row():
+                        chat_temp_slider = gr.Slider(
+                            label="Temperature",
+                            minimum=0.0,
+                            maximum=2.0,
+                            step=0.1,
+                            value=settings.ollama.temperature,
+                        )
             
             # Memory Tab
             with gr.Tab("🧠 Memory"):
@@ -160,7 +607,7 @@ def create_app(
                         delete_memory_btn = gr.Button("🗑️ Delete Memory", variant="stop")
             
             # Activity Log Tab
-            with gr.Tab("📊 Activity"):
+            with gr.Tab("📊 Activity") as activity_tab:
                 gr.Markdown(
                     """
                     ### Activity Log
@@ -205,7 +652,61 @@ def create_app(
             
             # Settings Tab
             with gr.Tab("⚙️ Settings"):
-                with gr.Accordion("🦙 Ollama Settings", open=True):
+                with gr.Accordion("🤖 Model Selection", open=True):
+                    gr.Markdown(
+                        """
+                        ### Select AI Model
+                        
+                        Choose from all available models. Click Refresh to see installed models.
+                        """
+                    )
+                    with gr.Row():
+                        model_dropdown = gr.Dropdown(
+                            label="Active Model",
+                            choices=[settings.ollama.model],
+                            value=settings.ollama.model,
+                            interactive=True,
+                            scale=3,
+                        )
+                        refresh_models_btn = gr.Button("🔄 Refresh", scale=1)
+                    model_status = gr.Textbox(label="Status", interactive=False, visible=True)
+                    
+                    with gr.Row():
+                        vision_model_dropdown = gr.Dropdown(
+                            label="Vision Model (for images)",
+                            choices=["(auto-detect)", settings.ollama.vision_model] if settings.ollama.vision_model else ["(auto-detect)"],
+                            value=settings.ollama.vision_model or "(auto-detect)",
+                            interactive=True,
+                            scale=3,
+                            info="Used when you send images. Leave as auto-detect to use first available.",
+                        )
+                        save_vision_model_btn = gr.Button("💾 Save", scale=1)
+                
+                with gr.Accordion("👤 Personalization", open=False):
+                    gr.Markdown(
+                        """
+                        ### Personalize Your Assistant
+                        
+                        Set how you'd like to be addressed and what to call your assistant.
+                        """
+                    )
+                    with gr.Row():
+                        bot_name_input = gr.Textbox(
+                            label="Assistant Name",
+                            placeholder="e.g., Pigeon, Jarvis, Friday",
+                            value="Pigeon",
+                            info="What should your AI assistant be called?",
+                        )
+                        user_name_input = gr.Textbox(
+                            label="Your Name",
+                            placeholder="e.g., Michael, Boss, Captain",
+                            value="",
+                            info="How would you like to be addressed? (Leave blank for no name)",
+                        )
+                    save_personalization_btn = gr.Button("💾 Save Personalization", variant="primary")
+                    personalization_status = gr.Textbox(label="Status", interactive=False, visible=False)
+                
+                with gr.Accordion("🦙 Ollama Settings", open=False):
                     with gr.Row():
                         with gr.Column():
                             ollama_host = gr.Textbox(
@@ -236,13 +737,26 @@ def create_app(
                         - **🧠 Thinking/Reasoning**: Chain-of-thought models (DeepSeek R1, Qwen3, Kimi K2)
                         - **🖼️ Vision Models**: Can analyze images (llava, moondream, llama3.2-vision)
                         - **💻 Coding Models**: Optimized for code (Qwen Coder, CodeLlama, DeepSeek Coder)
-                        - **💬 General Chat**: Well-rounded models (Gemma, Llama, Mistral)
+                        - **� Tool Calling**: Native function calling (Llama 3.1, Llama 3.2, Mistral)
+                        - **�💬 General Chat**: Well-rounded models (Gemma, Llama, Mistral)
                         - **⚡ Small/Fast**: Lightweight models for quick responses
                         """
                     )
                     
                     with gr.Tabs():
-                        with gr.Tab("📦 Installed"):
+                        with gr.Tab("� Starter Pack"):
+                            from local_pigeon.core.model_catalog import format_starter_pack_for_display, get_starter_pack_recommendations
+                            starter_pack_content = gr.Markdown(format_starter_pack_for_display())
+                            
+                            gr.Markdown("---")
+                            gr.Markdown("**Quick Install - Download all recommended models:**")
+                            with gr.Row():
+                                install_tools_btn = gr.Button("🔧 Install Tool Models", variant="primary")
+                                install_vision_btn = gr.Button("🖼️ Install Vision Models")
+                                install_thinking_btn = gr.Button("🧠 Install Thinking Models")
+                            starter_install_status = gr.Textbox(label="Install Status", lines=3, interactive=False)
+                        
+                        with gr.Tab("�📦 Installed"):
                             models_list = gr.Dataframe(
                                 headers=["Model", "Size", "Vision", "Status"],
                                 datatype=["str", "str", "str", "str"],
@@ -253,7 +767,7 @@ def create_app(
                             refresh_models_list_btn = gr.Button("🔄 Refresh")
                         
                         with gr.Tab("📚 Model Catalog"):
-                            gr.Markdown("**Browse available models by category:**")
+                            gr.Markdown("**Browse available models by category. Click a model name to install.**")
                             
                             catalog_category_filter = gr.Dropdown(
                                 label="Filter by Category",
@@ -264,68 +778,44 @@ def create_app(
                                     "🖼️ Vision",
                                     "💻 Coding",
                                     "💬 General",
+                                    "🔧 Tool Calling",
                                     "⚡ Small/Fast",
                                 ],
                                 value="⭐ Recommended",
                             )
                             
                             catalog_list = gr.Dataframe(
-                                headers=["Model", "Size", "Type", "Backend", "Description"],
+                                headers=["Model", "Ollama Name", "Size", "Type", "Description"],
                                 datatype=["str", "str", "str", "str", "str"],
                                 label="Model Catalog",
                                 interactive=False,
-                                row_count=8,
-                            )
-                        
-                        with gr.Tab("📥 Install Model"):
-                            gr.Markdown(
-                                """
-                                **Install models via Ollama or GGUF (llama-cpp-python)**
-                                
-                                For **Ollama** (recommended): Enter model name like `deepseek-r1:7b`, `qwen3:8b`, `llava`
-                                
-                                For **GGUF**: Select from catalog or enter HuggingFace repo path
-                                """
+                                row_count=10,
                             )
                             
-                            install_backend = gr.Radio(
-                                label="Backend",
-                                choices=["Ollama (recommended)", "GGUF (llama-cpp-python)"],
-                                value="Ollama (recommended)",
-                            )
-                            
-                            pull_model_input = gr.Textbox(
-                                label="Model Name",
-                                placeholder="e.g., deepseek-r1:7b, qwen3:8b, llava",
-                                info="Ollama: model name | GGUF: HuggingFace repo/file",
-                            )
+                            gr.Markdown("---")
+                            gr.Markdown("**Install a model:**")
                             
                             with gr.Row():
-                                pull_model_btn = gr.Button("📥 Install Model", variant="primary")
-                                check_ollama_btn = gr.Button("🔍 Check Ollama Status")
+                                install_backend = gr.Radio(
+                                    label="Backend",
+                                    choices=["Ollama", "GGUF"],
+                                    value="Ollama",
+                                    scale=1,
+                                )
+                                pull_model_input = gr.Textbox(
+                                    label="Model Name",
+                                    placeholder="e.g., deepseek-r1:7b, qwen3:8b, llava",
+                                    scale=3,
+                                )
+                                pull_model_btn = gr.Button("📥 Install", variant="primary", scale=1)
                             
-                            pull_model_status = gr.Textbox(
-                                label="Status",
-                                lines=3,
-                                interactive=False,
-                            )
-                            
-                            gr.Markdown(
-                                """
-                                ---
-                                **Popular models to try:**
-                                
-                                | Model | Command | Best For |
-                                |-------|---------|----------|
-                                | DeepSeek R1 7B | `deepseek-r1:7b` | 🧠 Complex reasoning |
-                                | Qwen 3 8B | `qwen3:8b` | 🧠 Thinking mode (/think) |
-                                | LLaVA 7B | `llava:7b` | 🖼️ Image analysis |
-                                | Moondream | `moondream` | 🖼️ Fast vision |
-                                | Qwen Coder 7B | `qwen2.5-coder:7b` | 💻 Code generation |
-                                | Llama 3.2 3B | `llama3.2:3b` | ⚡ Fast & capable |
-                                | Gemma 3 4B | `gemma3:4b` | 💬 General chat |
-                                """
-                            )
+                            with gr.Row():
+                                pull_model_status = gr.Textbox(
+                                    label="Status",
+                                    lines=2,
+                                    interactive=False,
+                                )
+                                check_ollama_btn = gr.Button("🔍 Check Ollama")
                 
                 with gr.Accordion("� Agent Behavior (Ralph Loop)", open=False):
                     gr.Markdown(
@@ -408,8 +898,10 @@ def create_app(
                 
                 # Determine Discord status for accordion label
                 _discord_label = "💬 Discord Bot"
-                if settings.discord.bot_token:
+                if settings.discord.enabled and settings.discord.bot_token:
                     _discord_label = "✅ Discord Bot"
+                elif settings.discord.bot_token:
+                    _discord_label = "⚠️ Discord Bot (disabled)"
                 
                 with gr.Accordion(_discord_label, open=True):
                     gr.Markdown(
@@ -491,9 +983,12 @@ def create_app(
                 
                 # Determine Google status for accordion label
                 _google_token_exists = (get_data_dir() / "google_token.json").exists()
+                _google_any_enabled = settings.google.gmail_enabled or settings.google.calendar_enabled or settings.google.drive_enabled
                 _google_label = "📧 Google Workspace"
-                if _google_token_exists:
+                if _google_token_exists and _google_any_enabled:
                     _google_label = "✅ Google Workspace"
+                elif _google_token_exists:
+                    _google_label = "⚠️ Google Workspace (authorized but disabled)"
                 elif settings.google.credentials_path:
                     _google_label = "⚠️ Google Workspace (needs authorization)"
                 
@@ -552,8 +1047,10 @@ def create_app(
                 
                 # Determine Stripe status for accordion label
                 _stripe_label = "💳 Stripe Payments"
-                if settings.payments.stripe.api_key:
+                if settings.payments.stripe.enabled and settings.payments.stripe.api_key:
                     _stripe_label = "✅ Stripe Payments"
+                elif settings.payments.stripe.api_key:
+                    _stripe_label = "⚠️ Stripe Payments (disabled)"
                 
                 with gr.Accordion(_stripe_label, open=False):
                     gr.Markdown(
@@ -583,22 +1080,41 @@ def create_app(
             # Tools Tab
             with gr.Tab("🧰 Tools"):
                 gr.Markdown("### Available Tools")
-                
-                tools_table = gr.Dataframe(
-                    headers=["Tool", "Description", "Enabled"],
-                    datatype=["str", "str", "bool"],
-                    value=[
-                        ["Web Search", "Search the web using DuckDuckGo", settings.web.search.enabled],
-                        ["Web Fetch", "Fetch and extract content from web pages", settings.web.fetch.enabled],
-                        ["Browser", "Navigate dynamic websites (Google Flights, etc.)", settings.web.browser.enabled],
-                        ["Gmail", "Read and send emails", settings.google.gmail_enabled],
-                        ["Calendar", "Manage Google Calendar events", settings.google.calendar_enabled],
-                        ["Drive", "Access Google Drive files", settings.google.drive_enabled],
-                        ["Stripe Payments", "Make payments with virtual card", settings.payments.stripe.enabled],
-                        ["Crypto Wallet", "Manage crypto payments", settings.payments.crypto.enabled],
-                    ],
-                    interactive=False,
+                gr.Markdown(
+                    """
+                    This shows which tools are **configured** vs which are **actually loaded**.
+                    Tools must be enabled AND authorized to appear in the "Loaded" list.
+                    """
                 )
+                
+                with gr.Row():
+                    with gr.Column(scale=1):
+                        gr.Markdown("**Configured (in settings):**")
+                        tools_table = gr.Dataframe(
+                            headers=["Tool", "Description", "Enabled"],
+                            datatype=["str", "str", "bool"],
+                            value=[
+                                ["Web Search", "Search the web using DuckDuckGo", settings.web.search.enabled],
+                                ["Web Fetch", "Fetch and extract content from web pages", settings.web.fetch.enabled],
+                                ["Browser", "Navigate dynamic websites (Google Flights, etc.)", settings.web.browser.enabled],
+                                ["Gmail", "Read and send emails", settings.google.gmail_enabled],
+                                ["Calendar", "Manage Google Calendar events", settings.google.calendar_enabled],
+                                ["Drive", "Access Google Drive files", settings.google.drive_enabled],
+                                ["Stripe Payments", "Make payments with virtual card", settings.payments.stripe.enabled],
+                                ["Crypto Wallet", "Manage crypto payments", settings.payments.crypto.enabled],
+                            ],
+                            interactive=False,
+                        )
+                    
+                    with gr.Column(scale=1):
+                        gr.Markdown("**Loaded (available to AI):**")
+                        loaded_tools_display = gr.Textbox(
+                            label="",
+                            value="Click 'Refresh' to see loaded tools",
+                            lines=8,
+                            interactive=False,
+                        )
+                        refresh_loaded_tools_btn = gr.Button("🔄 Refresh Loaded Tools")
                 
                 with gr.Accordion("🌐 Browser Automation (Playwright)", open=True):
                     gr.Markdown(
@@ -1011,47 +1527,143 @@ def create_app(
                     """
                 )
         
-        # Event handlers
-        async def chat(
+        # Event handlers - split into add_message (instant) and generate (streaming)
+        def add_user_message(
             message: str,
             history: list[dict],
         ) -> tuple[str, list[dict]]:
-            """Handle chat message."""
+            """Instantly add user message to chat - no waiting."""
             if not message.strip():
-                return "", history
+                return message, history
+            # Add user message immediately, assistant placeholder
+            history = history + [
+                {"role": "user", "content": message},
+            ]
+            return "", history  # Clear input immediately
+        
+        async def generate_response(
+            history: list[dict],
+        ):
+            """Generate assistant response with streaming."""
+            if not history or history[-1].get("role") != "user":
+                yield history
+                return
+            
+            # Extract user message - handle both string and multi-part content
+            user_content = history[-1]["content"]
+            if isinstance(user_content, list):
+                # Multi-part content (text + files) - extract text parts
+                user_message = " ".join(
+                    part.get("text", "") if isinstance(part, dict) else str(part)
+                    for part in user_content
+                    if isinstance(part, dict) and "text" in part
+                ) or str(user_content)
+            else:
+                user_message = str(user_content)
             
             try:
+                from local_pigeon.core.agent import StatusEvent, StatusType
+                
                 current_agent = await get_agent()
                 
-                # Collect response
+                # Add placeholder for assistant response
+                history = history + [{"role": "assistant", "content": "Thinking..."}]
+                yield history
+                
+                # Collect response with streaming and track status events
                 response_parts = []
+                status_lines = []
                 
                 def stream_callback(chunk: str) -> None:
                     response_parts.append(chunk)
                 
+                def status_callback(event: StatusEvent) -> None:
+                    """Track status events for display."""
+                    details = event.details or {}
+                    # Format status based on event type
+                    if event.type == StatusType.THINKING:
+                        status_lines.append("💭 Thinking...")
+                    elif event.type == StatusType.TOOL_START:
+                        status_lines.append(f"🔧 Using tool: **{details.get('tool', 'unknown')}**")
+                    elif event.type == StatusType.TOOL_ARGS:
+                        status_lines.append(f"   ↳ {event.message}")
+                    elif event.type == StatusType.TOOL_RESULT:
+                        tool = details.get('tool', 'tool')
+                        result_preview = str(details.get('result', ''))[:80]
+                        if len(str(details.get('result', ''))) > 80:
+                            result_preview += "..."
+                        status_lines.append(f"   ✓ {tool} completed")
+                    elif event.type == StatusType.TOOL_ERROR:
+                        status_lines.append(f"   ✗ Error: {event.message}")
+                    elif event.type == StatusType.ITERATION:
+                        status_lines.append(f"🔄 {event.message}")
+                    elif event.type == StatusType.DONE:
+                        pass  # Don't show "done" - final response will follow
+                
                 response = await current_agent.chat(
-                    user_message=message,
+                    user_message=user_message,
                     user_id="web_user",
                     session_id="web_session",
                     platform="web",
                     stream_callback=stream_callback,
+                    status_callback=status_callback,
                 )
                 
-                # Update history with new message format
-                history = history + [
-                    {"role": "user", "content": message},
-                    {"role": "assistant", "content": response},
-                ]
+                # Build final content with status log if tools were used
+                if status_lines:
+                    # Format status as a collapsible details block
+                    status_log = "\n".join(status_lines)
+                    final_content = f"<details><summary>🔍 Agent activity ({len([l for l in status_lines if '🔧' in l])} tool calls)</summary>\n\n```\n{status_log}\n```\n\n</details>\n\n{response}"
+                else:
+                    final_content = response
                 
-                return "", history
+                # Update with final response
+                history[-1]["content"] = final_content
+                yield history
                 
             except Exception as e:
-                error_msg = f"Error: {str(e)}"
-                history = history + [
-                    {"role": "user", "content": message},
-                    {"role": "assistant", "content": error_msg},
-                ]
-                return "", history
+                error_str = str(e)
+                
+                # Auto-download model if 404 (not found)
+                if "404" in error_str or "not found" in error_str.lower():
+                    model = settings.ollama.model
+                    history[-1]["content"] = f"Downloading model {model}... This may take a few minutes."
+                    yield history
+                    
+                    try:
+                        import httpx
+                        async with httpx.AsyncClient(timeout=600.0) as client:
+                            async with client.stream(
+                                "POST",
+                                f"{settings.ollama.host}/api/pull",
+                                json={"name": model},
+                            ) as resp:
+                                async for line in resp.aiter_lines():
+                                    pass  # Consume stream
+                        
+                        # Retry the chat
+                        history[-1]["content"] = "Model downloaded! Let me try again..."
+                        yield history
+                        
+                        current_agent = await get_agent()
+                        response = await current_agent.chat(
+                            user_message=user_message,
+                            user_id="web_user",
+                            session_id="web_session",
+                            platform="web",
+                        )
+                        history[-1]["content"] = response
+                        yield history
+                        return
+                    except Exception as download_err:
+                        error_str = f"Failed to download model: {download_err}"
+                
+                error_msg = f"Error: {error_str}"
+                if history and history[-1].get("role") == "assistant":
+                    history[-1]["content"] = error_msg
+                else:
+                    history = history + [{"role": "assistant", "content": error_msg}]
+                yield history
         
         async def clear_history() -> list:
             """Clear chat history."""
@@ -1062,58 +1674,149 @@ def create_app(
                 pass
             return []
         
-        async def refresh_models() -> gr.Dropdown:
-            """Refresh available models from Ollama with capability indicators."""
+        async def refresh_models() -> tuple[gr.Dropdown, gr.Dropdown]:
+            """Refresh available models - shows catalog models plus installed."""
             try:
                 import httpx
                 from local_pigeon.core.llm_client import OllamaClient
+                from local_pigeon.core.model_catalog import MODEL_CATALOG, ModelCategory
                 
                 # Create a temporary client to check capabilities
                 temp_client = OllamaClient(host=settings.ollama.host)
                 
+                # Get installed models from Ollama
+                installed_models = set()
+                try:
+                    async with httpx.AsyncClient() as client:
+                        resp = await client.get(
+                            f"{settings.ollama.host}/api/tags",
+                            timeout=10.0,
+                        )
+                        data = resp.json()
+                        for m in data.get("models", []):
+                            installed_models.add(m["name"])
+                except Exception:
+                    pass
+                
+                # Build model choices from catalog
+                model_choices = []
+                vision_choices = [("(auto-detect)", "(auto-detect)")]  # Always include auto-detect
+                seen_names = set()
+                
+                # Add catalog models with install status
+                for model in MODEL_CATALOG:
+                    if not model.ollama_name:
+                        continue
+                    
+                    name = model.ollama_name
+                    seen_names.add(name)
+                    
+                    # Check if installed
+                    is_installed = name in installed_models
+                    
+                    # Category indicators
+                    cat_icons = []
+                    is_vision = ModelCategory.VISION in model.categories
+                    if is_vision:
+                        cat_icons.append("🖼️")
+                    if ModelCategory.THINKING in model.categories:
+                        cat_icons.append("🧠")
+                    if ModelCategory.CODING in model.categories:
+                        cat_icons.append("💻")
+                    
+                    status = "✅" if is_installed else "📥"
+                    icons = " ".join(cat_icons)
+                    display = f"{status} {name} {icons}".strip()
+                    
+                    model_choices.append((display, name))
+                    
+                    # Add to vision choices if it's a vision model and installed
+                    if is_vision and is_installed:
+                        vision_choices.append((f"🖼️ {name}", name))
+                
+                # Add installed models not in catalog
+                for name in sorted(installed_models):
+                    if name not in seen_names:
+                        is_vision = temp_client.is_vision_model(name)
+                        if is_vision:
+                            display = f"✅ {name} 🖼️"
+                            vision_choices.append((f"🖼️ {name}", name))
+                        else:
+                            display = f"✅ {name}"
+                        model_choices.append((display, name))
+                
+                if not model_choices:
+                    model_choices = [(settings.ollama.model, settings.ollama.model)]
+                
+                # Current model value
+                current = settings.ollama.model
+                current_vision = settings.ollama.vision_model or "(auto-detect)"
+                
+                return (
+                    gr.Dropdown(
+                        choices=model_choices,
+                        value=current if any(c[1] == current for c in model_choices) else model_choices[0][1],
+                    ),
+                    gr.Dropdown(
+                        choices=vision_choices,
+                        value=current_vision if any(c[1] == current_vision for c in vision_choices) else "(auto-detect)",
+                    ),
+                )
+            except Exception:
+                return (
+                    gr.Dropdown(
+                        choices=[settings.ollama.model],
+                        value=settings.ollama.model,
+                    ),
+                    gr.Dropdown(
+                        choices=["(auto-detect)"],
+                        value="(auto-detect)",
+                    ),
+                )
+        
+        async def change_model(model: str) -> None:
+            """Change the active model and persist to settings. Auto-downloads if needed."""
+            try:
+                import httpx
+                
+                # Check if model is installed
                 async with httpx.AsyncClient() as client:
                     resp = await client.get(
                         f"{settings.ollama.host}/api/tags",
                         timeout=10.0,
                     )
                     data = resp.json()
-                    
-                    # Build model choices with capability indicators
-                    model_choices = []
-                    for m in data.get("models", []):
-                        name = m["name"]
-                        # Add vision indicator
-                        if temp_client.is_vision_model(name):
-                            display = f"🖼️ {name} (vision)"
-                        else:
-                            display = name
-                        model_choices.append((display, name))
-                    
-                    if not model_choices:
-                        model_choices = [(settings.ollama.model, settings.ollama.model)]
-                    
-                    # Get just the names for the value
-                    choices = [c[1] for c in model_choices]
-                    
-                    return gr.Dropdown(
-                        choices=model_choices,
-                        value=choices[0] if choices else settings.ollama.model,
-                    )
-            except Exception:
-                return gr.Dropdown(
-                    choices=[settings.ollama.model],
-                    value=settings.ollama.model,
-                )
-        
-        async def change_model(model: str) -> None:
-            """Change the active model and persist to settings."""
-            try:
+                    installed = {m["name"] for m in data.get("models", [])}
+                
+                if model not in installed:
+                    # Model not installed - try to pull it
+                    gr.Info(f"Downloading {model}... This may take a few minutes.")
+                    try:
+                        async with httpx.AsyncClient(timeout=600.0) as client:
+                            async with client.stream(
+                                "POST",
+                                f"{settings.ollama.host}/api/pull",
+                                json={"name": model},
+                            ) as resp:
+                                # Stream the download progress
+                                async for line in resp.aiter_lines():
+                                    pass  # Just consume the stream
+                        gr.Info(f"Downloaded {model} successfully!")
+                    except Exception as e:
+                        gr.Warning(f"Failed to download {model}: {e}")
+                        return
+                
                 current_agent = await get_agent()
                 current_agent.set_model(model)
+                
+                # Update settings object so UI reflects change
+                settings.ollama.model = model
+                
                 # Persist to .env so it's remembered on restart
                 _save_env_var("OLLAMA_MODEL", model)
-            except Exception:
-                pass
+                gr.Info(f"Switched to {model}")
+            except Exception as e:
+                gr.Warning(f"Error: {e}")
         
         async def list_installed_models() -> list:
             """List installed models with their capabilities."""
@@ -1237,6 +1940,7 @@ def create_app(
                     get_recommended_models, get_thinking_models,
                     get_vision_models, get_coding_models,
                     get_small_models, get_models_by_category,
+                    get_tool_calling_models,
                 )
                 
                 # Map filter to category
@@ -1252,6 +1956,8 @@ def create_app(
                     models = get_models_by_category(ModelCategory.GENERAL)
                 elif category_filter == "⚡ Small/Fast":
                     models = get_small_models()
+                elif category_filter == "🔧 Tool Calling":
+                    models = get_tool_calling_models()
                 else:
                     models = MODEL_CATALOG
                 
@@ -1266,25 +1972,21 @@ def create_app(
                         ModelCategory.GENERAL: "💬",
                         ModelCategory.SMALL: "⚡",
                         ModelCategory.MULTILINGUAL: "🌍",
+                        ModelCategory.TOOL_CALLING: "🔧",
                     }
                     categories = " ".join(cat_emojis.get(c, "") for c in model.categories)
                     
-                    # Backend availability
-                    backends = []
-                    if model.supports_ollama:
-                        backends.append("Ollama")
-                    if model.supports_gguf:
-                        backends.append("GGUF")
-                    backend_str = " / ".join(backends)
+                    # Get Ollama name for display
+                    ollama_name = model.ollama_name if model.ollama_name else "(GGUF only)"
                     
                     # Recommended indicator
                     name = f"⭐ {model.name}" if model.recommended else model.name
                     
                     rows.append([
                         name,
+                        ollama_name,
                         model.size_label,
                         categories,
-                        backend_str,
                         model.description,
                     ])
                 
@@ -1315,6 +2017,38 @@ def create_app(
                 return "✅ Settings saved successfully!"
             except Exception as e:
                 return f"❌ Error saving settings: {str(e)}"
+        
+        def save_vision_model_handler(vision_model: str) -> str:
+            """Save vision model preference."""
+            try:
+                # Handle auto-detect selection
+                if vision_model == "(auto-detect)":
+                    settings.ollama.vision_model = ""
+                else:
+                    settings.ollama.vision_model = vision_model
+                
+                # Also save to .env file for persistence
+                data_dir = get_data_dir()
+                env_path = data_dir / ".env"
+                
+                # Read existing env
+                env_lines = []
+                if env_path.exists():
+                    with open(env_path, 'r') as f:
+                        env_lines = [l for l in f.readlines() if not l.startswith("OLLAMA_VISION_MODEL=")]
+                
+                # Add or update vision model setting
+                if settings.ollama.vision_model:
+                    env_lines.append(f"OLLAMA_VISION_MODEL={settings.ollama.vision_model}\\n")
+                
+                with open(env_path, 'w') as f:
+                    f.writelines(env_lines)
+                
+                if vision_model == "(auto-detect)":
+                    return "✅ Vision model set to auto-detect"
+                return f"✅ Vision model set to: {vision_model}"
+            except Exception as e:
+                return f"❌ Error: {str(e)}"
         
         def open_data_folder() -> str:
             """Open the data folder in file explorer."""
@@ -1403,58 +2137,65 @@ def create_app(
             except Exception as e:
                 return await load_memories(), f"❌ Error: {str(e)}"
         
+        # Personalization handlers
+        async def load_personalization() -> tuple[str, str]:
+            """Load current personalization settings."""
+            try:
+                current_agent = await get_agent()
+                user_settings = await current_agent.user_settings.get("web_user")
+                return user_settings.bot_name, user_settings.user_display_name
+            except Exception:
+                return "Pigeon", ""
+        
+        async def save_personalization(bot_name: str, user_name: str) -> str:
+            """Save personalization settings."""
+            try:
+                current_agent = await get_agent()
+                
+                # Validate bot name
+                clean_bot_name = bot_name.strip() if bot_name else "Pigeon"
+                if not clean_bot_name:
+                    clean_bot_name = "Pigeon"
+                
+                clean_user_name = user_name.strip() if user_name else ""
+                
+                # Update settings
+                await current_agent.user_settings.update(
+                    "web_user",
+                    bot_name=clean_bot_name,
+                    user_display_name=clean_user_name,
+                )
+                
+                greeting = f"Hi{', ' + clean_user_name if clean_user_name else ''}! "
+                return f"✅ {greeting}I'm now {clean_bot_name}. Nice to meet you!"
+            except Exception as e:
+                return f"❌ Error saving settings: {str(e)}"
+        
         # Voice transcription handler
-        async def transcribe_audio(audio_path: str) -> tuple[str, str]:
-            """Transcribe audio using Whisper via Ollama or local model."""
+        async def transcribe_audio(audio_path: str) -> str:
+            """Transcribe audio using speech recognition."""
             if not audio_path:
-                return "", ""
+                return ""
             
             try:
-                # Try using OpenAI Whisper API locally if available
-                # Or use a speech-to-text service
-                import httpx
-                
-                # First, try Ollama's experimental audio support
-                # Fall back to a simple local transcription approach
+                # Try speech recognition with SpeechRecognition library
                 try:
-                    # Check if whisper is available via Ollama
-                    async with httpx.AsyncClient() as client:
-                        # Read audio file
-                        with open(audio_path, "rb") as f:
-                            audio_data = f.read()
-                        
-                        # Try speech recognition with SpeechRecognition library
-                        try:
-                            import speech_recognition as sr
-                            recognizer = sr.Recognizer()
-                            
-                            with sr.AudioFile(audio_path) as source:
-                                audio = recognizer.record(source)
-                            
-                            # Use Google's free speech recognition
-                            text = recognizer.recognize_google(audio)
-                            return text, text
-                        except ImportError:
-                            return "", "⚠️ Install speech_recognition: pip install SpeechRecognition"
-                        except Exception as e:
-                            return "", f"⚠️ Transcription error: {e}"
-                
+                    import speech_recognition as sr
+                    recognizer = sr.Recognizer()
+                    
+                    with sr.AudioFile(audio_path) as source:
+                        audio = recognizer.record(source)
+                    
+                    # Use Google's free speech recognition
+                    text = recognizer.recognize_google(audio)
+                    return text
+                except ImportError:
+                    return "[Voice input requires: pip install SpeechRecognition]"
                 except Exception as e:
-                    return "", f"⚠️ Audio processing error: {e}"
+                    return f"[Transcription error: {e}]"
             
             except Exception as e:
-                return "", f"❌ Error: {str(e)}"
-        
-        async def send_voice_message(
-            transcription: str,
-            history: list[dict],
-        ) -> tuple[str, list[dict], str]:
-            """Send transcribed voice message as chat."""
-            if not transcription.strip():
-                return "", history, ""
-            
-            msg_result, new_history = await chat(transcription, history)
-            return "", new_history, ""
+                return f"[Error: {str(e)}]"
         
         # Activity log handlers
         async def load_activity(platform_filter: str) -> tuple[list, str, str]:
@@ -1902,30 +2643,45 @@ def create_app(
             """Restart the Local Pigeon application."""
             import sys
             import os
+            import subprocess
             
             # Schedule restart
             def do_restart():
                 import time
                 time.sleep(0.5)  # Brief delay to let response go through
                 python = sys.executable
-                os.execl(python, python, *sys.argv)
+                # Use subprocess with proper list args to handle spaces in paths
+                try:
+                    subprocess.Popen([python] + sys.argv)
+                except Exception:
+                    # Fallback: try with shell=True for Windows paths with spaces
+                    subprocess.Popen(f'"{python}" ' + ' '.join(f'"{a}"' for a in sys.argv), shell=True)
+                os._exit(0)
             
             import threading
             threading.Thread(target=do_restart, daemon=True).start()
             
             return "🔄 Restarting Local Pigeon... The page will refresh automatically."
         
-        # Wire up events
+        # Wire up events - two-step for instant message display
         send_btn.click(
-            fn=chat,
+            fn=add_user_message,
             inputs=[msg_input, chatbot],
             outputs=[msg_input, chatbot],
+        ).then(
+            fn=generate_response,
+            inputs=[chatbot],
+            outputs=[chatbot],
         )
         
         msg_input.submit(
-            fn=chat,
+            fn=add_user_message,
             inputs=[msg_input, chatbot],
             outputs=[msg_input, chatbot],
+        ).then(
+            fn=generate_response,
+            inputs=[chatbot],
+            outputs=[chatbot],
         )
         
         clear_btn.click(
@@ -1935,12 +2691,35 @@ def create_app(
         
         refresh_models_btn.click(
             fn=refresh_models,
-            outputs=[model_dropdown],
+            outputs=[model_dropdown, vision_model_dropdown],
+        )
+        
+        save_vision_model_btn.click(
+            fn=save_vision_model_handler,
+            inputs=[vision_model_dropdown],
+            outputs=[model_status],
         )
         
         model_dropdown.change(
             fn=change_model,
             inputs=[model_dropdown],
+        )
+        
+        # Chat tab model selector events - sync with main dropdown
+        chat_model_dropdown.change(
+            fn=change_model,
+            inputs=[chat_model_dropdown],
+        )
+        
+        async def refresh_chat_models():
+            """Refresh models for chat tab dropdown."""
+            result = await refresh_models()
+            # Return just the first dropdown for chat
+            return result[0]
+        
+        chat_refresh_btn.click(
+            fn=refresh_chat_models,
+            outputs=[chat_model_dropdown],
         )
         
         save_settings_btn.click(
@@ -1980,6 +2759,87 @@ def create_app(
             outputs=[catalog_list],
         )
         
+        # Starter pack install handlers
+        async def install_starter_models(category: str) -> str:
+            """Install recommended models for a category."""
+            from local_pigeon.core.model_catalog import get_starter_pack_recommendations
+            import httpx
+            
+            recs = get_starter_pack_recommendations()
+            models = recs.get(category, [])
+            
+            if not models:
+                return f"No {category} models found in recommendations."
+            
+            status_lines = [f"Installing {len(models)} {category} models..."]
+            installed = 0
+            
+            for model in models:
+                if not model.ollama_name:
+                    continue
+                try:
+                    status_lines.append(f"⏳ Pulling {model.ollama_name}...")
+                    async with httpx.AsyncClient(timeout=600.0) as client:
+                        response = await client.post(
+                            f"{settings.ollama.host}/api/pull",
+                            json={"name": model.ollama_name, "stream": False},
+                        )
+                        if response.status_code == 200:
+                            status_lines.append(f"✅ {model.ollama_name} installed")
+                            installed += 1
+                        else:
+                            status_lines.append(f"❌ {model.ollama_name}: {response.text[:100]}")
+                except Exception as e:
+                    status_lines.append(f"❌ {model.ollama_name}: {str(e)[:50]}")
+            
+            status_lines.append(f"\nDone! Installed {installed}/{len(models)} models.")
+            return "\n".join(status_lines[-6:])  # Last 6 lines
+        
+        async def install_tool_calling_models():
+            return await install_starter_models("tool_calling")
+        
+        async def install_vision_models():
+            return await install_starter_models("vision")
+        
+        async def install_thinking_models():
+            return await install_starter_models("thinking")
+        
+        install_tools_btn.click(
+            fn=install_tool_calling_models,
+            outputs=[starter_install_status],
+        )
+        
+        install_vision_btn.click(
+            fn=install_vision_models,
+            outputs=[starter_install_status],
+        )
+        
+        install_thinking_btn.click(
+            fn=install_thinking_models,
+            outputs=[starter_install_status],
+        )
+        
+        # Click on catalog row to populate install input
+        def on_catalog_select(evt: gr.SelectData, current_data: list) -> str:
+            """Handle catalog row selection - populate model name for install."""
+            try:
+                if evt.index is not None and len(evt.index) >= 1:
+                    row_idx = evt.index[0]
+                    if row_idx < len(current_data):
+                        # Column 1 is Ollama Name
+                        ollama_name = current_data[row_idx][1]
+                        if ollama_name and "(GGUF only)" not in ollama_name:
+                            return ollama_name
+                return ""
+            except Exception:
+                return ""
+        
+        catalog_list.select(
+            fn=on_catalog_select,
+            inputs=[catalog_list],
+            outputs=[pull_model_input],
+        )
+        
         # Load catalog on app start
         app.load(
             fn=load_model_catalog,
@@ -2016,11 +2876,27 @@ def create_app(
             outputs=[memories_display, memory_status],
         )
         
-        # Voice input events
+        # Personalization events
+        save_personalization_btn.click(
+            fn=save_personalization,
+            inputs=[bot_name_input, user_name_input],
+            outputs=[personalization_status],
+        ).then(
+            fn=lambda: gr.update(visible=True),
+            outputs=[personalization_status],
+        )
+        
+        # Load personalization on startup
+        app.load(
+            fn=load_personalization,
+            outputs=[bot_name_input, user_name_input],
+        )
+        
+        # Voice input events - transcribe and populate message box
         voice_input.change(
             fn=transcribe_audio,
             inputs=[voice_input],
-            outputs=[msg_input, voice_status],
+            outputs=[msg_input],
         )
         
         # Activity log events
@@ -2031,6 +2907,13 @@ def create_app(
         )
         
         activity_platform_filter.change(
+            fn=load_activity,
+            inputs=[activity_platform_filter],
+            outputs=[activity_log, tool_usage_summary, recent_tool_calls],
+        )
+        
+        # Auto-refresh activity when tab is selected
+        activity_tab.select(
             fn=load_activity,
             inputs=[activity_platform_filter],
             outputs=[activity_log, tool_usage_summary, recent_tool_calls],
@@ -2100,11 +2983,36 @@ def create_app(
             outputs=[browser_status],
         )
         
+        async def get_loaded_tools() -> str:
+            """Get list of tools actually loaded in the agent."""
+            try:
+                current_agent = await get_agent()
+                tools = current_agent.tools.list_tools()
+                if not tools:
+                    return "⚠️ No tools loaded.\n\nMake sure to:\n1. Enable tools in Integrations tab\n2. Save settings\n3. Authorize (for Google tools)"
+                tool_names = sorted([t.name for t in tools])
+                return "✅ " + "\n✅ ".join(tool_names)
+            except Exception as e:
+                return f"❌ Error: {e}"
+        
+        refresh_loaded_tools_btn.click(
+            fn=get_loaded_tools,
+            outputs=[loaded_tools_display],
+        )
+        
         # Load memories on startup
         app.load(
             fn=load_memories,
             outputs=[memories_display],
         )
+        
+        # Cleanup on close
+        async def cleanup_on_close():
+            nonlocal agent
+            if agent is not None:
+                await agent.shutdown()
+        
+        app.unload(fn=cleanup_on_close)
     
     return app
 
@@ -2155,12 +3063,21 @@ def launch_ui(
     """
     app = create_app(settings)
     
-    app.launch(
-        server_name=server_name,
-        server_port=server_port,
-        share=share,
-        show_error=True,
-    )
+    launch_kwargs = {
+        "server_name": server_name,
+        "server_port": server_port,
+        "share": share,
+        "show_error": True,
+    }
+    
+    # Gradio 6.0+ expects theme/css in launch()
+    if _gradio_6_plus:
+        if hasattr(app, '_lp_theme'):
+            launch_kwargs["theme"] = app._lp_theme
+        if hasattr(app, '_lp_css'):
+            launch_kwargs["css"] = app._lp_css
+    
+    app.launch(**launch_kwargs)
 
 
 if __name__ == "__main__":
