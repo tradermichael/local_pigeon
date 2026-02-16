@@ -279,6 +279,10 @@ class DiscordAdapter(BasePlatformAdapter):
         content: str,
     ) -> None:
         """Send a long message, splitting if necessary."""
+        # Guard against empty messages
+        if not content or not content.strip():
+            content = "I received your message but couldn't generate a response. Please try again."
+        
         max_len = self.settings.max_message_length
         
         if len(content) <= max_len:

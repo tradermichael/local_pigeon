@@ -708,21 +708,23 @@ Timezone: {datetime.now().astimezone().tzinfo}
                 # Model provided a final answer
                 final_response = response.content
                 
-                # Handle empty response (some models return empty on first request)
+                # Handle empty response with retries and model fallback
                 if not final_response or not final_response.strip():
-                    # If this is the first iteration with no tools called, retry once
-                    if iteration == 1 and not tool_results_this_session:
-                        # Try one more time - some models need a "warm-up"
-                        response = await self.llm.achat(
-                            messages=messages,
-                            tools=tools,
-                        )
-                        if not response.tool_calls:
-                            final_response = response.content
-                        else:
-                            # Model now wants to use tools - continue loop
-                            messages.append(response)
-                            continue
+                    final_response = await self._handle_empty_response(
+                        messages=messages,
+                        tools=tools,
+                        iteration=iteration,
+                        tool_results_this_session=tool_results_this_session,
+                        emit_status=emit_status,
+                    )
+                    
+                    # If still no response, continue loop in case model wants tools
+                    if final_response is None:
+                        continue
+                
+                # Final safety net - never return empty
+                if not final_response or not final_response.strip():
+                    final_response = "I received your message but couldn't generate a response. Please try rephrasing or try a different model."
                 
                 # If we executed tools, prepend a brief status
                 if tool_results_this_session:
@@ -881,6 +883,105 @@ Timezone: {datetime.now().astimezone().tzinfo}
             True,  # Tools were called
         )
     
+    async def _handle_empty_response(
+        self,
+        messages: list[Message],
+        tools: list[ToolDefinition] | None,
+        iteration: int,
+        tool_results_this_session: list,
+        emit_status: Callable,
+    ) -> str | None:
+        """
+        Handle empty responses with retries and model fallback.
+        
+        Returns:
+            The response string if successful, or None to continue the loop
+            (e.g., if model now wants to use tools).
+        """
+        import asyncio
+        
+        max_retries = self.settings.ollama.max_retries
+        retry_delay = self.settings.ollama.retry_delay
+        fallback_models = self.settings.ollama.fallback_models
+        original_model = self.llm.model
+        
+        # Only retry on first iteration before any tools were called
+        if iteration > 1 or tool_results_this_session:
+            return None
+        
+        # Retry with the current model
+        for retry in range(max_retries):
+            await emit_status(
+                StatusType.THINKING,
+                f"Retrying ({retry + 1}/{max_retries})...",
+                {"retry": retry + 1, "max_retries": max_retries}
+            )
+            
+            if retry > 0:
+                await asyncio.sleep(retry_delay * retry)  # Exponential backoff
+            
+            response = await self.llm.achat(
+                messages=messages,
+                tools=tools,
+            )
+            
+            if response.tool_calls:
+                # Model now wants to use tools - return None to continue loop
+                messages.append(response)
+                return None
+            
+            if response.content and response.content.strip():
+                return response.content
+        
+        # Try fallback models
+        for fallback_model in fallback_models:
+            if fallback_model == original_model:
+                continue  # Skip the model we already tried
+            
+            # Check if fallback model is available
+            try:
+                import httpx
+                async with httpx.AsyncClient(timeout=5.0) as client:
+                    resp = await client.get(f"{self.settings.ollama.host}/api/tags")
+                    if resp.status_code == 200:
+                        models = [m["name"] for m in resp.json().get("models", [])]
+                        if fallback_model not in models:
+                            continue  # Model not installed, skip
+            except Exception:
+                continue  # Can't check, skip
+            
+            await emit_status(
+                StatusType.THINKING,
+                f"Trying fallback model: {fallback_model}",
+                {"fallback_model": fallback_model}
+            )
+            
+            # Temporarily switch to fallback model
+            self.llm.model = fallback_model
+            
+            try:
+                response = await self.llm.achat(
+                    messages=messages,
+                    tools=tools,
+                )
+                
+                if response.tool_calls:
+                    # Model wants to use tools
+                    messages.append(response)
+                    return None
+                
+                if response.content and response.content.strip():
+                    # Success! Keep using this model for the rest of this conversation
+                    return f"*(Switched to {fallback_model})*\n\n{response.content}"
+            except Exception:
+                pass  # Try next fallback
+            finally:
+                # Restore original model for next request
+                self.llm.model = original_model
+        
+        # All retries and fallbacks failed
+        return None
+
     async def _execute_tool(
         self,
         tool_call: ToolCall,

@@ -95,9 +95,15 @@ class OllamaSettings(BaseSettings):
     host: str = Field(default="http://localhost:11434", description="Ollama API host")
     model: str = Field(default="gemma3:latest", description="Default model to use")
     vision_model: str = Field(default="", description="Vision model for image processing (auto-detected if empty)")
+    fallback_models: list[str] = Field(
+        default_factory=lambda: ["llama3.1:8b", "qwen2.5:7b", "mistral:7b"],
+        description="Fallback models to try if primary model returns empty"
+    )
     context_length: int = Field(default=8192, description="Context window size")
     temperature: float = Field(default=0.7, ge=0.0, le=2.0, description="Generation temperature")
     max_tokens: int = Field(default=2048, description="Max tokens to generate")
+    max_retries: int = Field(default=3, description="Max retries for empty responses before fallback")
+    retry_delay: float = Field(default=0.5, description="Delay between retries in seconds")
     
     model_config = SettingsConfigDict(env_prefix="OLLAMA_")
 
