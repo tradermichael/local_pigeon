@@ -31,6 +31,18 @@ class Skill:
     """
     A learned skill for using a specific tool.
     
+    Skills can be stored as:
+    - Simple: Single .md or .yaml file (auto-learned skills)
+    - Complex: Directory with SKILL.md + optional files (power-user skills)
+    
+    Complex skill directory structure:
+        skill-name/
+        ├── SKILL.md          # Core instructions and metadata (required)
+        ├── README.md         # Optional documentation
+        ├── examples.md       # Optional detailed usage examples
+        ├── reference.md      # Optional API or technical details
+        └── scripts/          # Optional executable scripts
+    
     Attributes:
         id: Unique identifier
         name: Human-readable name  
@@ -44,6 +56,10 @@ class Skill:
         success_count: How many times this skill led to successful tool use
         failure_count: How many times this skill still failed
         status: 'approved', 'pending', 'rejected'
+        readme: Optional README content (for complex skills)
+        reference: Optional reference documentation (for complex skills)
+        scripts: List of script paths (for complex skills)
+        is_directory: Whether this skill is stored as a directory
     """
     id: str
     name: str
@@ -58,6 +74,11 @@ class Skill:
     failure_count: int = 0
     enabled: bool = True
     status: str = "approved"  # approved, pending, rejected
+    # Complex skill fields (directory-based)
+    readme: str = ""
+    reference: str = ""
+    scripts: list[str] = field(default_factory=list)
+    is_directory: bool = False
 
 
 class SkillsManager:
@@ -333,6 +354,115 @@ When the user says phrases like:
             print(f"Error loading markdown skill from {path}: {e}")
             return None
     
+    def _load_skill_dir(self, skill_dir: Path) -> Skill | None:
+        """
+        Load a complex skill from a directory.
+        
+        Expected structure:
+            skill-name/
+            ├── SKILL.md          # Core instructions and metadata (required)
+            ├── README.md         # Optional documentation
+            ├── examples.md       # Optional detailed usage examples
+            ├── reference.md      # Optional API or technical details
+            └── scripts/          # Optional executable scripts
+        """
+        try:
+            skill_file = skill_dir / "SKILL.md"
+            if not skill_file.exists():
+                return None
+            
+            # Load the main SKILL.md file
+            skill = self._load_skill_md(skill_file)
+            if not skill:
+                return None
+            
+            # Override ID with directory name
+            skill.id = skill_dir.name
+            skill.is_directory = True
+            
+            # Load optional README.md
+            readme_path = skill_dir / "README.md"
+            if readme_path.exists():
+                skill.readme = readme_path.read_text(encoding="utf-8")
+            
+            # Load optional examples.md and merge with existing examples
+            examples_path = skill_dir / "examples.md"
+            if examples_path.exists():
+                examples_content = examples_path.read_text(encoding="utf-8")
+                # Parse additional examples from the file
+                user_matches = re.findall(r'\*\*User:\*\*\s*"([^"]*)"', examples_content)
+                action_matches = re.findall(r'\*\*Action:\*\*\s*`([^`]*)`', examples_content)
+                for user, action in zip(user_matches, action_matches):
+                    try:
+                        skill.examples.append({
+                            "user": user,
+                            "tool_call": json.loads(action) if action.startswith("{") else {"name": action},
+                        })
+                    except json.JSONDecodeError:
+                        skill.examples.append({"user": user, "tool_call": {"name": action}})
+            
+            # Load optional reference.md
+            reference_path = skill_dir / "reference.md"
+            if reference_path.exists():
+                skill.reference = reference_path.read_text(encoding="utf-8")
+            
+            # Scan for scripts
+            scripts_dir = skill_dir / "scripts"
+            if scripts_dir.exists() and scripts_dir.is_dir():
+                skill.scripts = [
+                    str(script.relative_to(skill_dir))
+                    for script in scripts_dir.iterdir()
+                    if script.is_file()
+                ]
+            
+            return skill
+            
+        except Exception as e:
+            print(f"Error loading skill directory {skill_dir}: {e}")
+            return None
+    
+    def _save_skill_dir(self, skill: Skill, skill_dir: Path) -> None:
+        """
+        Save a complex skill as a directory structure.
+        
+        Creates:
+            skill-name/
+            ├── SKILL.md          # Core instructions and metadata
+            ├── README.md         # If skill.readme is set
+            ├── examples.md       # If skill has many examples
+            ├── reference.md      # If skill.reference is set
+            └── scripts/          # If skill.scripts is set
+        """
+        skill_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Save main SKILL.md
+        skill_file = skill_dir / "SKILL.md"
+        self._save_skill_md(skill, skill_file)
+        
+        # Save README.md if present
+        if skill.readme:
+            readme_path = skill_dir / "README.md"
+            readme_path.write_text(skill.readme, encoding="utf-8")
+        
+        # Save examples.md if there are many examples
+        if len(skill.examples) > 3:
+            examples_content = "# Examples\n\n"
+            for ex in skill.examples:
+                examples_content += f"**User:** \"{ex.get('user', '')}\"\n"
+                examples_content += f"**Action:** `{json.dumps(ex.get('tool_call', {}))}`\n\n"
+            examples_path = skill_dir / "examples.md"
+            examples_path.write_text(examples_content, encoding="utf-8")
+        
+        # Save reference.md if present
+        if skill.reference:
+            reference_path = skill_dir / "reference.md"
+            reference_path.write_text(skill.reference, encoding="utf-8")
+        
+        # Create scripts directory if needed
+        if skill.scripts:
+            scripts_dir = skill_dir / "scripts"
+            scripts_dir.mkdir(exist_ok=True)
+    
     def load_all_skills(self) -> dict[str, Skill]:
         """Load all approved skills from all directories."""
         self._skills_cache = {}
@@ -341,17 +471,24 @@ When the user says phrases like:
         for category in ["builtin", "learned", "custom"]:
             category_dir = self.skills_dir / category
             if category_dir.exists():
-                # Load YAML skills
+                # Load YAML skills (single file)
                 for skill_file in category_dir.glob("*.yaml"):
                     skill = self._load_skill(skill_file)
                     if skill and skill.enabled and skill.status == "approved":
                         self._skills_cache[skill.id] = skill
                 
-                # Load Markdown skills
+                # Load Markdown skills (single file)
                 for skill_file in category_dir.glob("*.md"):
                     skill = self._load_skill_md(skill_file)
                     if skill and skill.enabled and skill.status == "approved":
                         self._skills_cache[skill.id] = skill
+                
+                # Load directory-based skills (complex skills with SKILL.md)
+                for item in category_dir.iterdir():
+                    if item.is_dir() and (item / "SKILL.md").exists():
+                        skill = self._load_skill_dir(item)
+                        if skill and skill.enabled and skill.status == "approved":
+                            self._skills_cache[skill.id] = skill
         
         # Load pending skills separately
         pending_dir = self.skills_dir / "pending"
@@ -469,11 +606,11 @@ When the user says phrases like:
         skill.created_at = datetime.now().isoformat()
         skill.updated_at = datetime.now().isoformat()
         
-        # Generate filename from skill ID
-        filename = f"{skill.id}.yaml"
+        # Generate filename from skill ID - use markdown format for human readability
+        filename = f"{skill.id}.md"
         path = self.skills_dir / "learned" / filename
         
-        self._save_skill(skill, path)
+        self._save_skill_md(skill, path)
         self._skills_cache[skill.id] = skill
         
         return path
@@ -488,19 +625,24 @@ When the user says phrases like:
         if not skill:
             return False
         
-        # Find the skill file
+        # Find the skill file (check both .md and .yaml formats)
         for category in ["learned", "custom", "builtin"]:
-            path = self.skills_dir / category / f"{skill_id}.yaml"
-            if path.exists():
-                # Apply updates
-                for key, value in updates.items():
-                    if hasattr(skill, key):
-                        setattr(skill, key, value)
-                
-                skill.updated_at = datetime.now().isoformat()
-                self._save_skill(skill, path)
-                self._skills_cache[skill_id] = skill
-                return True
+            for ext in [".md", ".yaml"]:
+                path = self.skills_dir / category / f"{skill_id}{ext}"
+                if path.exists():
+                    # Apply updates
+                    for key, value in updates.items():
+                        if hasattr(skill, key):
+                            setattr(skill, key, value)
+                    
+                    skill.updated_at = datetime.now().isoformat()
+                    # Save in the same format as the original
+                    if ext == ".md":
+                        self._save_skill_md(skill, path)
+                    else:
+                        self._save_skill(skill, path)
+                    self._skills_cache[skill_id] = skill
+                    return True
         
         return False
     
@@ -566,8 +708,8 @@ When the user says phrases like:
             skill = Skill(**skill_data)
             skill.source = "imported"
             
-            path = self.skills_dir / category / f"{skill.id}.yaml"
-            self._save_skill(skill, path)
+            path = self.skills_dir / category / f"{skill.id}.md"
+            self._save_skill_md(skill, path)
             self._skills_cache[skill.id] = skill
             count += 1
         

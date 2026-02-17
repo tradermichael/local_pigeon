@@ -156,6 +156,18 @@ TOOL_CAPABILITIES = {
         trigger_phrases=["you should have used", "remember to use"],
         example_call={"name": "learn_skill", "arguments": {"tool": "gmail", "trigger_phrase": "check my mail"}},
     ),
+    "create_skill": ToolCapability(
+        name="create_skill",
+        description="Create a new skill to teach yourself patterns for future use. Use proactively when you learn something useful.",
+        trigger_phrases=["I should remember", "let me create a skill"],
+        example_call={"name": "create_skill", "arguments": {"name": "Weather Check", "tool": "web_search", "instructions": "Use web_search for weather queries"}},
+    ),
+    "document_limitation": ToolCapability(
+        name="document_limitation",
+        description="Document when you can't do something or encounter a limitation. Creates a skill with workarounds or needed capabilities.",
+        trigger_phrases=["I cannot currently", "I'm limited in", "I don't have access to"],
+        example_call={"name": "document_limitation", "arguments": {"limitation": "Cannot access real-time stock prices", "workaround": "Use web_search to find recent stock info"}},
+    ),
 }
 
 
@@ -240,8 +252,10 @@ def generate_capabilities_summary(
         "### SELF-IMPROVEMENT:",
         "- Use 'remember' to save user preferences and facts",
         "- Use 'learn_skill' when user corrects your tool usage",
+        "- Use 'create_skill' proactively when you learn a useful pattern",
+        "- Use 'document_limitation' when you encounter something you cannot do",
         "- Use 'view_skills' to see patterns you've learned",
-        "- You can improve over time by learning from feedback",
+        "- You can improve over time by learning from feedback AND self-critique",
         "",
     ])
     
@@ -260,13 +274,20 @@ I am Local Pigeon, an AI agent with these components:
 - **LLM**: My brain - processes conversations and decides actions
 - **Tools**: My hands - execute real actions (gmail, calendar, web, browser, etc.)
 - **Memory**: Persistent storage about the user (use 'remember' to save, 'recall' to retrieve)
-- **Skills**: Learned patterns for tool usage (use 'learn_skill' when user corrects me)
+- **Skills**: Learned patterns for tool usage (I can create, learn, and manage my own skills)
 - **RALPH Loop**: My learning system - I improve from failures automatically
 
 HOW I USE TOOLS:
 1. User asks: "check my email" → I call gmail tool → I show them results
 2. User says: "my name is John" → I call remember tool → saved for future
 3. User says: "you should have used gmail" → I call learn_skill → I won't forget next time
+
+SELF-IMPROVEMENT (I can manage my own skills):
+- 'create_skill': When I learn a useful pattern, I save it for future use
+- 'learn_skill': When user corrects me, I update my skills
+- 'document_limitation': When I can't do something, I document why and suggest workarounds
+- 'view_skills': See all patterns I've learned
+- I actively self-critique and improve my capabilities over time
 
 I do NOT need to:
 - Ask for API keys or tokens (already configured via OAuth)

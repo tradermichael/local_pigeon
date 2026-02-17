@@ -21,11 +21,17 @@ def get_data_dir() -> Path:
     
     Uses proper system-level locations:
     - Windows: %LOCALAPPDATA%\\LocalPigeon
+    - Windows Store Python: %LOCALAPPDATA%\\Packages\\<package>\\LocalCache\\Local\\LocalPigeon
     - macOS: ~/Library/Application Support/LocalPigeon
     - Linux: ~/.local/share/local_pigeon (XDG compliant)
     
     Can be overridden via DATA_DIR or LOCAL_PIGEON_DATA environment variables.
+    
+    Automatically detects virtualized environments (Windows Store, Snap, Flatpak)
+    and returns the correct physical path where files actually exist.
     """
+    import sys
+    
     # Check for explicit override
     data_dir = os.environ.get("LOCAL_PIGEON_DATA") or os.environ.get("DATA_DIR")
     if data_dir:
@@ -37,7 +43,37 @@ def get_data_dir() -> Path:
     system = platform.system()
     
     if system == "Windows":
-        # Windows: %LOCALAPPDATA%\LocalPigeon
+        # Prefer Windows Store Python LocalCache if present (some store builds don't include WindowsApps in sys.executable)
+        try:
+            local_app_data = os.environ.get("LOCALAPPDATA", "")
+            packages_dir = Path(local_app_data) / "Packages"
+            if packages_dir.exists():
+                matches = sorted(packages_dir.glob("PythonSoftwareFoundation.Python.*"))
+                for match in matches:
+                    candidate = match / "LocalCache" / "Local" / "LocalPigeon"
+                    # If it already exists or we can create it, use it
+                    candidate.mkdir(parents=True, exist_ok=True)
+                    return candidate
+        except Exception:
+            pass
+
+        # Check if using Windows Store Python (virtualized filesystem)
+        if "WindowsApps" in sys.executable:
+            # Extract the package name from the executable path
+            # e.g., PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0
+            try:
+                exe_parts = Path(sys.executable).parts
+                for part in exe_parts:
+                    if part.startswith("PythonSoftwareFoundation.Python"):
+                        # Build the actual path in LocalCache
+                        local_app_data = os.environ.get("LOCALAPPDATA", "")
+                        path = Path(local_app_data) / "Packages" / part / "LocalCache" / "Local" / "LocalPigeon"
+                        path.mkdir(parents=True, exist_ok=True)
+                        return path
+            except Exception:
+                pass
+        
+        # Regular Windows: %LOCALAPPDATA%\LocalPigeon
         local_app_data = os.environ.get("LOCALAPPDATA")
         if local_app_data:
             path = Path(local_app_data) / "LocalPigeon"
@@ -50,6 +86,21 @@ def get_data_dir() -> Path:
     
     else:
         # Linux/Unix: ~/.local/share/local_pigeon (XDG Base Directory)
+        # Check for Snap package
+        snap_data = os.environ.get("SNAP_USER_DATA")
+        if snap_data:
+            path = Path(snap_data) / "LocalPigeon"
+            path.mkdir(parents=True, exist_ok=True)
+            return path
+        
+        # Check for Flatpak
+        if os.environ.get("FLATPAK_ID"):
+            flatpak_data = os.environ.get("XDG_DATA_HOME")
+            if flatpak_data:
+                path = Path(flatpak_data) / "local_pigeon"
+                path.mkdir(parents=True, exist_ok=True)
+                return path
+        
         xdg_data = os.environ.get("XDG_DATA_HOME")
         if xdg_data:
             path = Path(xdg_data) / "local_pigeon"

@@ -337,6 +337,7 @@ class LocalPigeonAgent:
             ViewSkillsTool,
             LearnSkillTool,
             UpdateSkillTool,
+            DocumentLimitationTool,
         )
         self.tools.register(CreateSkillTool(
             skills_manager=self.skills,
@@ -345,6 +346,10 @@ class LocalPigeonAgent:
         self.tools.register(ViewSkillsTool(skills_manager=self.skills))
         self.tools.register(LearnSkillTool(skills_manager=self.skills))
         self.tools.register(UpdateSkillTool(skills_manager=self.skills))
+        self.tools.register(DocumentLimitationTool(
+            skills_manager=self.skills,
+            auto_approve=self.settings.agent.auto_approve_skills,
+        ))
         
         # Memory tools - always enabled
         from local_pigeon.tools.memory_tools import (

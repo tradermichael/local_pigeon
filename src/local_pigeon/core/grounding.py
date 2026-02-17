@@ -211,13 +211,13 @@ Reply:"""
             ]
             
             # Quick call with no tools, just classification
-            response = await self.llm.chat(
+            # Use achat (async) without stream parameter - it's not supported
+            response = await self.llm.achat(
                 messages=messages,
                 tools=None,
-                stream=False,
             )
             
-            answer = response.message.content.strip().upper()
+            answer = response.content.strip().upper() if response.content else ""
             
             if "SEARCH" in answer:
                 return GroundingResult(
