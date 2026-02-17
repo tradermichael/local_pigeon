@@ -570,7 +570,7 @@ Timezone: {datetime.now().astimezone().tzinfo}
             return ""
         
         # Get web_search tool
-        web_search = self.tools.get("web_search")
+        web_search = self.tools.get_tool("web_search")
         if not web_search:
             return ""
         
