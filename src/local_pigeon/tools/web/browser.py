@@ -301,12 +301,20 @@ class BrowserSearchTool(Tool):
     
     name: str = "browser_search"
     description: str = """Search and extract information using a real browser.
-Best for:
-- Google Flights to check flight prices
-- Price comparisons across shopping sites
-- Any search requiring JavaScript rendering
 
-Use this when simple web_fetch won't work due to dynamic content."""
+REQUIRED: You MUST specify the 'task' parameter.
+
+Available tasks:
+- task="google_flights": Search flights (requires origin, destination, date)
+- task="google_search": Google search (requires query)
+- task="custom": Browse any URL (requires url and optionally query)
+
+Examples:
+- {"task": "google_flights", "origin": "SFO", "destination": "LAX", "date": "2026-03-15"}
+- {"task": "google_search", "query": "best pizza near me"}
+- {"task": "custom", "url": "https://yelp.com/search?find_desc=restaurants&find_loc=santa+clara", "query": ""}
+
+Use this when simple web_fetch won't work due to dynamic JavaScript content."""
     
     parameters: dict[str, Any] = field(default_factory=lambda: {
         "type": "object",
@@ -352,6 +360,9 @@ Use this when simple web_fetch won't work due to dynamic content."""
         self._current_user_id = user_id
         task = kwargs.get("task", "")
         
+        if not task:
+            return "Error: 'task' parameter is required. Use 'google_flights', 'google_search', or 'custom'."
+        
         if task == "google_flights":
             return await self._search_flights(
                 origin=kwargs.get("origin", ""),
@@ -366,7 +377,7 @@ Use this when simple web_fetch won't work due to dynamic content."""
                 query=kwargs.get("query", ""),
             )
         else:
-            return f"Unknown task: {task}. Available: google_flights, google_search, custom"
+            return f"Error: Unknown task '{task}'. Use: google_flights, google_search, or custom"
     
     async def _search_flights(self, origin: str, destination: str, date: str) -> str:
         """Search for flight prices on Google Flights."""
