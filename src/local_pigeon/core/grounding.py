@@ -36,14 +36,16 @@ DEFINITE_GROUNDING_PATTERNS = [
     # Current events / time-sensitive - flexible word order
     (r"\b(who is|who's)\b.*(president|ceo|leader|head|founder|owner|chairman)\b", "current position holder"),
     (r"\b(president|ceo|leader|head|founder|owner|chairman)\b.*(who is|who's)\b", "current position holder"),
-    (r"\bwho\b.*(president|ceo|leader)\b.*(is|are)\b", "current position holder"),
-    (r"\b(tell me|know)\b.*\bwho\b.*(president|ceo|leader)\b", "current position holder"),
+    (r"\bwho\b.*(president|ceo|leader)\b", "current position holder"),  # Simplified: "who" + position word
+    (r"\b(tell me|can you tell me|do you know)\b.*\b(who|what|when|where)\b", "question request"),  # "tell me who..."
     (r"\b(current|latest|recent|today'?s?) (president|leader|ceo|news|price|score|results|weather)\b", "current events"),
     (r"\b(bitcoin|btc|eth|stock|crypto) (price|value|worth)\b", "price lookup"),
     (r"\b(weather|temperature|forecast) (in|for|today|tomorrow)\b", "weather lookup"),
     
-    # Sports / competitions
-    (r"\b(who won|winner of|score of|results of)\b.*(super bowl|world cup|olympics|election|game|match|championship)\b", "sports/competition results"),
+    # Sports / competitions / elections
+    (r"\b(who won|winner of|score of|results of|results for)\b", "event results"),
+    (r"\b(election|super bowl|world cup|olympics)\b.*(results?|winner|won)\b", "event results"),
+    (r"\b(results?|winner|won)\b.*(election|super bowl|world cup|olympics)\b", "event results"),
     (r"\b(super bowl|world series|world cup|olympics)\b.*(winner|won|score|champion|result)\b", "sports/competition results"),
     (r"\b(20\d\d)\b.*(super bowl|world cup|olympics|election|champion)\b", "dated event lookup"),
     
@@ -68,13 +70,17 @@ PROBABLE_GROUNDING_PATTERNS = [
 ]
 
 # Patterns that likely DON'T need grounding (personal/subjective)
+# NOTE: These only apply when NO factual patterns are matched first
 NO_GROUNDING_PATTERNS = [
-    r"\b(how do i|how can i|help me|can you)\b.*\b(write|code|create|make|build|design)\b",
-    r"\b(write|create|generate|compose|draft)\b.*\b(story|poem|code|script|email|letter)\b",
-    r"\b(summarize|explain|translate|convert)\b",
-    r"\b(my|me|i'm|i am|i have|i want)\b",
-    r"\bhello|hi |hey |thanks|thank you|please help\b",
-    r"\bopinion|think|feel|believe|prefer\b",
+    # Creative writing - must be explicitly asking to write/create something
+    r"\b(write|create|generate|compose|draft)\b.*\b(story|poem|code|script|letter)\b",
+    # Code help - must be about coding specifically
+    r"\b(how do i|how can i|help me)\b.*\b(code|program|implement|debug|fix.*error)\b",
+    # Pure greetings (without questions)
+    r"^(hello|hi|hey|thanks|thank you)[\s.,!?]*$",
+    # Opinion questions
+    r"\bwhat do you (think|feel|believe)\b",
+    r"\bwhat('s| is) your opinion\b",
 ]
 
 
@@ -117,19 +123,12 @@ class GroundingClassifier:
         Fast pattern-based classification (no LLM call).
         
         Returns a result with confidence based on pattern matches.
+        PRIORITY ORDER: Definite YES patterns checked BEFORE NO patterns,
+        because factual signals are stronger than creative signals.
         """
         query_lower = query.lower()
         
-        # Check definite NO grounding patterns first
-        for pattern in self._no_grounding_patterns:
-            if pattern.search(query_lower):
-                return GroundingResult(
-                    needs_grounding=False,
-                    confidence=0.8,
-                    reason="creative/personal request",
-                )
-        
-        # Check definite YES grounding patterns
+        # Check definite YES grounding patterns FIRST (stronger signal)
         for pattern, reason in self._definite_patterns:
             if pattern.search(query_lower):
                 return GroundingResult(
@@ -137,6 +136,15 @@ class GroundingClassifier:
                     confidence=0.95,
                     reason=reason,
                     suggested_query=self._extract_search_query(query),
+                )
+        
+        # Check definite NO grounding patterns (only if no factual patterns matched)
+        for pattern in self._no_grounding_patterns:
+            if pattern.search(query_lower):
+                return GroundingResult(
+                    needs_grounding=False,
+                    confidence=0.8,
+                    reason="creative/personal request",
                 )
         
         # Check probable grounding patterns

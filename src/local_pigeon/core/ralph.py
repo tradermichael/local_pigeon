@@ -139,6 +139,21 @@ class RALPHLoop:
         
         Returns the tool name or None if no tool seems needed.
         """
+        tools = self.detect_all_expected_tools(user_message)
+        if tools:
+            # Return the highest-scored tool
+            return tools[0]
+        return None
+    
+    def detect_all_expected_tools(self, user_message: str) -> list[str]:
+        """
+        Detect ALL tools that should be used based on user message.
+        
+        For multi-part queries like "who is the president and check my email",
+        this returns ALL relevant tools (e.g., ['web_search', 'gmail']).
+        
+        Returns list of tool names sorted by relevance score, or empty list.
+        """
         user_lower = user_message.lower()
         
         # Check each tool's patterns
@@ -149,10 +164,63 @@ class RALPHLoop:
                 scores[tool] = score
         
         if scores:
-            # Return tool with highest score
-            return max(scores.keys(), key=lambda k: scores[k])
+            # Return all matching tools, sorted by score (highest first)
+            return sorted(scores.keys(), key=lambda k: scores[k], reverse=True)
         
-        return None
+        return []
+    
+    def detect_missing_tools(
+        self,
+        user_message: str,
+        tools_used: list[str],
+        model_response: str,
+    ) -> list[str]:
+        """
+        Detect tools that should have been used but weren't.
+        
+        This catches cases where the model:
+        - Used only some tools for a multi-part query
+        - Hallucinated results instead of calling tools
+        
+        Args:
+            user_message: What the user asked
+            tools_used: Names of tools that were actually called
+            model_response: The model's final response
+            
+        Returns:
+            List of tool names that should have been called but weren't
+        """
+        expected = self.detect_all_expected_tools(user_message)
+        missing = [t for t in expected if t not in tools_used]
+        
+        # Extra check: detect hallucinated email/calendar content
+        # If response talks about email content but gmail wasn't used
+        if "gmail" not in tools_used and "gmail" in expected:
+            email_content_patterns = [
+                r"\b(email|inbox)\b.*(show|mention|say|contain|empty|no|don't have)\b",
+                r"\b(no|haven't|haven't got|don't have)\b.*\b(email|messages?)\b",
+                r"\ball (your )?emails?\b",
+                r"\breviewing (your )?email\b",
+            ]
+            for pattern in email_content_patterns:
+                if re.search(pattern, model_response.lower()):
+                    if "gmail" not in missing:
+                        missing.append("gmail")
+                    break
+        
+        # If response talks about calendar but calendar wasn't used  
+        if "calendar" not in tools_used and "calendar" in expected:
+            calendar_content_patterns = [
+                r"\b(calendar|schedule)\b.*(show|empty|no|nothing|free|busy)\b",
+                r"\b(no|nothing on|nothing scheduled)\b.*\b(calendar|today)\b",
+            ]
+            for pattern in calendar_content_patterns:
+                if re.search(pattern, model_response.lower()):
+                    if "calendar" not in missing:
+                        missing.append("calendar")
+                    break
+        
+        return missing
     
     def detect_refusal(self, response: str) -> bool:
         """Check if the response indicates the model refused to use tools."""

@@ -638,11 +638,14 @@ def create_app(
     }
     """
     
-    # Create theme if available
+    # Create theme if available - force dark mode
     theme = SoftTheme(primary_hue="blue", secondary_hue="slate") if _has_themes else None
     
+    # JavaScript to force dark mode on load
+    dark_mode_js = "() => { document.body.classList.add('dark'); }"
+    
     # Gradio 6.0+ requires theme/css in launch(), older versions use Blocks()
-    blocks_kwargs = {"title": "Local Pigeon"}
+    blocks_kwargs = {"title": "Local Pigeon", "js": dark_mode_js}
     if not _gradio_6_plus:
         blocks_kwargs["theme"] = theme
         blocks_kwargs["css"] = gemini_css

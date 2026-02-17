@@ -708,7 +708,7 @@ If the search says a different person/fact than what you "know", THE SEARCH IS C
         
         try:
             # Run the agentic loop
-            response, tool_calls_made = await self._agentic_loop(
+            response, tool_calls_made, tools_used = await self._agentic_loop(
                 messages=messages,
                 tools=tools,
                 user_id=user_id,
@@ -738,6 +738,35 @@ If the search says a different person/fact than what you "know", THE SEARCH IS C
                         f"\n💡 RALPH: Learned new pattern for '{skill.tool}' tool\n"
                     )
         
+        # RALPH Loop: Check for incomplete multi-tool usage
+        # This catches cases like "who is the president AND check my email"
+        # where the model only uses one tool and hallucinates the rest
+        if tools and tool_calls_made:
+            # Get tools that were actually used from the agentic loop
+            missing_tools = self.ralph.detect_missing_tools(
+                user_message=user_message,
+                tools_used=tools_used,
+                model_response=response,
+            )
+            if missing_tools and stream_callback:
+                # Model hallucinated instead of using all required tools
+                await call_callback(
+                    stream_callback,
+                    f"\n⚠️ RALPH: Detected incomplete tool usage. "
+                    f"Missing: {', '.join(missing_tools)}\n"
+                )
+                # Learn from this failure
+                for missing in missing_tools:
+                    skill = self.ralph.learn_from_failure(
+                        user_message=user_message,
+                        model_response=response,
+                    )
+                    if skill:
+                        await call_callback(
+                            stream_callback,
+                            f"💡 Learned pattern for '{skill.tool}' tool\n"
+                        )
+        
         # Save assistant response
         await self.conversations.add_message(
             conversation_id,
@@ -755,7 +784,7 @@ If the search says a different person/fact than what you "know", THE SEARCH IS C
         stream_callback: Callable[[str], None] | None = None,
         status_callback: Callable[[StatusEvent], None] | None = None,
         max_iterations: int = 10,
-    ) -> tuple[str, bool]:
+    ) -> tuple[str, bool, list[str]]:
         """
         Run the agentic orchestrator loop, executing tools until task completion.
         
@@ -771,7 +800,7 @@ If the search says a different person/fact than what you "know", THE SEARCH IS C
         5. Repeat until model provides final answer without tool calls
         
         Returns:
-            Tuple of (response_text, tool_calls_made)
+            Tuple of (response_text, tool_calls_made, tools_used_names)
         """
         iteration = 0
         tool_results_this_session = []
@@ -863,19 +892,22 @@ If the search says a different person/fact than what you "know", THE SEARCH IS C
                 # Final safety net - never return empty
                 if not final_response or not final_response.strip():
                     final_response = "I received your message but couldn't generate a response. Please try rephrasing or try a different model."
-                    
+                 
+                # Get list of tool names used
+                tools_used = list(set(r.name for r in tool_results_this_session))
+                   
                 # If we executed tools, prepend a brief status
                 if tool_results_this_session:
                     await emit_status(
                         StatusType.DONE,
                         f"Completed using {len(tool_results_this_session)} tool(s)",
-                        {"tools_used": [r.name for r in tool_results_this_session]}
+                        {"tools_used": tools_used}
                     )
                     if stream_callback:
                         # Stream the final response
                         await call_callback(stream_callback, final_response)
                 
-                return final_response, len(tool_results_this_session) > 0
+                return final_response, len(tool_results_this_session) > 0, tools_used
             
             # Model wants to use tools - check for duplicates BEFORE adding to conversation
             current_signatures = [
@@ -1048,6 +1080,7 @@ If the search says a different person/fact than what you "know", THE SEARCH IS C
         # Max iterations reached - provide a helpful response
         # Debug: show what happened in each iteration
         debug_info = f"(Tools available: {len(tools) if tools else 0})"
+        tools_used = list(set(r.name for r in tool_results_this_session))
         return (
             f"I've completed {iteration} steps using tools but need more iterations to finish. "
             f"{debug_info}\n"
@@ -1055,6 +1088,7 @@ If the search says a different person/fact than what you "know", THE SEARCH IS C
             + ("\n".join(f"- {r.name}: {'✓' if r.success else '✗'}" for r in tool_results_this_session) or "- (no tools executed)")
             + "\n\nPlease let me know if you'd like me to continue.",
             len(tool_results_this_session) > 0,  # Only True if tools were actually called
+            tools_used,
         )
     
     async def _handle_empty_response(

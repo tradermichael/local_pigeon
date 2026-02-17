@@ -419,7 +419,18 @@ COMPLETING TASKS:
 After you call a tool and get results, PROVIDE YOUR FINAL ANSWER to the user.
 Do NOT call the same tool again unless you need different data.
 One tool call is usually enough - list files once, search once, then answer.
-If you have the information needed, STOP using tools and respond directly.""",
+If you have the information needed, STOP using tools and respond directly.
+
+MULTI-PART REQUESTS (CRITICAL):
+If the user asks for MULTIPLE things (e.g., "who is the president AND check my email"):
+- You MUST call ALL relevant tools - do NOT hallucinate results
+- NEVER pretend to check something without calling the actual tool
+- Example: "who is the president and check my email" requires BOTH web_search AND gmail
+- If the user mentions email/inbox: you MUST call gmail tool
+- If the user mentions calendar/schedule: you MUST call calendar tool
+- If the user mentions facts/current events: you MUST call web_search
+- NEVER say "your inbox doesn't contain X" without actually calling gmail first
+- Each tool provides DIFFERENT information - use ALL that are relevant""",
         description="System prompt for the agent (use {bot_name} and {user_name} as placeholders)"
     )
     max_history_messages: int = Field(default=20, ge=1, description="Max history messages")
