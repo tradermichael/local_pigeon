@@ -12,6 +12,7 @@ The main agent orchestration layer that:
 import asyncio
 import uuid
 from dataclasses import dataclass
+from datetime import datetime
 from enum import Enum
 from typing import Any, Callable, Awaitable
 
@@ -587,16 +588,23 @@ Timezone: {datetime.now().astimezone().tzinfo}
             search_result = await web_search.execute(query=search_query, num_results=5)
             
             if search_result and "Error" not in search_result:
-                # Format as context for the model
+                # Format as context for the model - be VERY forceful
                 grounding_context = f"""
-### FACTUAL GROUNDING (Pre-fetched search results)
-The following information was retrieved from the web for accuracy.
-TRUST THESE RESULTS over your training data. Your training data may be outdated.
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                    ⚠️  MANDATORY FACTUAL GROUNDING  ⚠️                        ║
+╠══════════════════════════════════════════════════════════════════════════════╣
+║  THESE ARE LIVE SEARCH RESULTS FROM TODAY ({datetime.now().strftime('%Y-%m-%d')}).                         ║
+║  YOUR TRAINING DATA IS OUTDATED AND WRONG FOR CURRENT FACTS.                  ║
+║  YOU MUST USE ONLY THESE SEARCH RESULTS - DO NOT USE YOUR TRAINING DATA.     ║
+╚══════════════════════════════════════════════════════════════════════════════╝
 
 {search_result}
 
-IMPORTANT: Base your answer on THESE SEARCH RESULTS, not your training data.
-If the search says a different person/fact than what you "know", THE SEARCH IS CORRECT.
+╔══════════════════════════════════════════════════════════════════════════════╗
+║  CRITICAL REMINDER: Copy the facts EXACTLY from above. Do not contradict them.║
+║  If search says "Trump is president" → your answer MUST say Trump, NOT Biden. ║
+║  If search says "Eagles won Super Bowl" → say Eagles, even if you think not.  ║
+╚══════════════════════════════════════════════════════════════════════════════╝
 """
                 if stream_callback:
                     await call_callback(stream_callback, "🔍 Found relevant information\n")

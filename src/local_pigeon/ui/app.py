@@ -641,8 +641,25 @@ def create_app(
     # Create theme if available - force dark mode
     theme = SoftTheme(primary_hue="blue", secondary_hue="slate") if _has_themes else None
     
-    # JavaScript to force dark mode on load
-    dark_mode_js = "() => { document.body.classList.add('dark'); }"
+    # JavaScript to force dark mode on load - comprehensive approach
+    dark_mode_js = """
+    () => {
+        // Force dark mode immediately
+        document.body.classList.add('dark');
+        document.documentElement.classList.add('dark');
+        
+        // Set localStorage so Gradio remembers
+        localStorage.setItem('__gradio_theme', 'dark');
+        
+        // Handle Gradio 6.x theme toggle if it exists
+        const observer = new MutationObserver(() => {
+            if (!document.body.classList.contains('dark')) {
+                document.body.classList.add('dark');
+            }
+        });
+        observer.observe(document.body, { attributes: true, attributeFilter: ['class'] });
+    }
+    """
     
     # Gradio 6.0+ requires theme/css in launch(), older versions use Blocks()
     blocks_kwargs = {"title": "Local Pigeon", "js": dark_mode_js}
