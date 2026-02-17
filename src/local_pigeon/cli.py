@@ -365,7 +365,8 @@ def run(host: str = None, port: int = None, no_ui: bool = False, debug: bool = t
                 webbrowser.open(ui_url)
             
             # Run UI in thread - it blocks until closed
-            tasks.append(asyncio.to_thread(launch_ui, settings=settings, server_name=settings.ui.host, server_port=settings.ui.port))
+            # Pass shared agent so model changes in GUI affect Discord/Telegram too
+            tasks.append(asyncio.to_thread(launch_ui, settings=settings, server_name=settings.ui.host, server_port=settings.ui.port, shared_agent=agent))
             tasks.append(launch_ui_and_open_browser())
         if not tasks:
             from local_pigeon.ui.app import launch_ui

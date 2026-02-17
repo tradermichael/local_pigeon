@@ -588,27 +588,11 @@ Timezone: {datetime.now().astimezone().tzinfo}
             search_result = await web_search.execute(query=search_query, num_results=5)
             
             if search_result and "Error" not in search_result:
-                # Format as context for the model - be VERY forceful
-                grounding_context = f"""
-╔══════════════════════════════════════════════════════════════════════════════╗
-║                    ⚠️  MANDATORY FACTUAL GROUNDING  ⚠️                        ║
-╠══════════════════════════════════════════════════════════════════════════════╣
-║  THESE ARE LIVE SEARCH RESULTS FROM TODAY ({datetime.now().strftime('%Y-%m-%d')}).                         ║
-║  YOUR TRAINING DATA IS OUTDATED AND WRONG FOR CURRENT FACTS.                  ║
-║  YOU MUST USE ONLY THESE SEARCH RESULTS - DO NOT USE YOUR TRAINING DATA.     ║
-╚══════════════════════════════════════════════════════════════════════════════╝
-
-{search_result}
-
-╔══════════════════════════════════════════════════════════════════════════════╗
-║  CRITICAL REMINDER: Copy the facts EXACTLY from above. Do not contradict them.║
-║  If search says "Trump is president" → your answer MUST say Trump, NOT Biden. ║
-║  If search says "Eagles won Super Bowl" → say Eagles, even if you think not.  ║
-╚══════════════════════════════════════════════════════════════════════════════╝
-"""
+                # Return the raw search results - they'll be injected as tool messages
+                # which the model naturally trusts more than system/user injections
                 if stream_callback:
                     await call_callback(stream_callback, "🔍 Found relevant information\n")
-                return grounding_context
+                return search_result
         except Exception as e:
             # Log but don't fail - model can still use tools if needed
             if stream_callback:
@@ -679,8 +663,10 @@ Timezone: {datetime.now().astimezone().tzinfo}
         system_prompt = await self.get_personalized_system_prompt(user_id, user_message)
         
         # Grounding preflight: check if query needs factual grounding
-        # If so, pre-fetch search results and inject into context
+        # If so, pre-fetch search results and inject as synthetic tool call/response
+        # This makes the model trust the results as if it called web_search itself
         grounding_context = ""
+        preflight_tool_messages = []
         if self.settings.agent.tools_enabled and not is_vision_request:
             grounding_context = await self._preflight_grounding(
                 user_message, 
@@ -688,12 +674,7 @@ Timezone: {datetime.now().astimezone().tzinfo}
                 status_callback
             )
         
-        # Add grounding context to system prompt if available
-        if grounding_context:
-            system_prompt += f"\n\n{grounding_context}"
-        
-        # Build messages for the LLM
-        # Include images in the user message if provided
+        # Build the user message (no augmentation - we'll use tool messages instead)
         user_msg = Message(role="user", content=user_message, images=images or [])
         
         messages = [
@@ -701,6 +682,50 @@ Timezone: {datetime.now().astimezone().tzinfo}
             *history,
             user_msg,
         ]
+        
+        # If we have grounding context, inject it as synthetic tool call + result
+        # The model will see: "I called web_search and got these results"
+        # This is MORE trusted than user-injected context
+        if grounding_context:
+            import uuid
+            tool_call_id = f"preflight_{uuid.uuid4().hex[:8]}"
+            
+            # Add assistant message with tool call (model "called" web_search)
+            messages.append(Message(
+                role="assistant",
+                content=None,
+                tool_calls=[{
+                    "id": tool_call_id,
+                    "type": "function",
+                    "function": {
+                        "name": "web_search",
+                        "arguments": f'{{"query": "{user_message}"}}',
+                    }
+                }],
+            ))
+            
+            # Add tool result message (web_search "returned" results)
+            # Include forceful grounding instructions since the model trusts tool results
+            messages.append(Message(
+                role="tool",
+                content=f"""╔══════════════════════════════════════════════════════════════════════════════╗
+║                    ⚠️  LIVE WEB SEARCH RESULTS  ⚠️                            ║
+║  Date: {datetime.now().strftime('%Y-%m-%d')} (TODAY)                                                ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+{grounding_context}
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║  CRITICAL INSTRUCTIONS:                                                       ║
+║  1. Your training data is OUTDATED - these search results are CURRENT         ║
+║  2. Use ONLY the facts from the search results above                          ║
+║  3. Include citations: mention source name/URL for key facts                  ║
+║  4. Example format: "According to [Source], Trump is the current president"   ║
+║  5. Do NOT contradict the search results with your training data              ║
+╚══════════════════════════════════════════════════════════════════════════════╝""",
+                tool_call_id=tool_call_id,
+                name="web_search",
+            ))
         
         # Save user message (without images for storage)
         await self.conversations.add_message(

@@ -17,7 +17,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any, Generator
+from typing import Any, Generator, TYPE_CHECKING
 import gradio as gr
 
 # Try to import themes (may not be available in all gradio versions)
@@ -34,15 +34,20 @@ _gradio_6_plus = _gradio_version >= (6, 0)
 from local_pigeon import __version__
 from local_pigeon.config import Settings, get_data_dir, ensure_data_dir, delete_local_data
 
+if TYPE_CHECKING:
+    from local_pigeon.core.agent import LocalPigeonAgent
+
 
 def create_app(
     settings: Settings | None = None,
+    shared_agent: "LocalPigeonAgent | None" = None,
 ) -> gr.Blocks:
     """
     Create the Gradio web application.
     
     Args:
         settings: Application settings (loaded from config if not provided)
+        shared_agent: Optional pre-initialized agent to share with other platforms
     
     Returns:
         Gradio Blocks application
@@ -64,8 +69,8 @@ def create_app(
     else:
         db_path = str(data_dir / db_filename)
     
-    # Create agent instance
-    agent: LocalPigeonAgent | None = None
+    # Use shared agent if provided, otherwise create our own
+    agent: LocalPigeonAgent | None = shared_agent
     memory_manager = AsyncMemoryManager(db_path=db_path)
     
     async def get_agent() -> LocalPigeonAgent:
@@ -641,23 +646,23 @@ def create_app(
     # Create theme if available - force dark mode
     theme = SoftTheme(primary_hue="blue", secondary_hue="slate") if _has_themes else None
     
-    # JavaScript to force dark mode on load - comprehensive approach
+    # JavaScript to force dark mode on load - redirect if needed
     dark_mode_js = """
     () => {
+        // Redirect to dark theme URL if not already there
+        if (!window.location.search.includes('__theme=dark')) {
+            const url = new URL(window.location);
+            url.searchParams.set('__theme', 'dark');
+            window.location.replace(url.toString());
+            return;
+        }
+        
         // Force dark mode immediately
         document.body.classList.add('dark');
         document.documentElement.classList.add('dark');
         
         // Set localStorage so Gradio remembers
         localStorage.setItem('__gradio_theme', 'dark');
-        
-        // Handle Gradio 6.x theme toggle if it exists
-        const observer = new MutationObserver(() => {
-            if (!document.body.classList.contains('dark')) {
-                document.body.classList.add('dark');
-            }
-        });
-        observer.observe(document.body, { attributes: true, attributeFilter: ['class'] });
     }
     """
     
@@ -3350,6 +3355,7 @@ def launch_ui(
     share: bool = False,
     server_name: str = "127.0.0.1",
     server_port: int = 7860,
+    shared_agent: "LocalPigeonAgent | None" = None,
 ) -> None:
     """
     Launch the Gradio web UI.
@@ -3359,8 +3365,9 @@ def launch_ui(
         share: Create a public share link
         server_name: Server hostname
         server_port: Server port
+        shared_agent: Optional pre-initialized agent to share with Discord/Telegram
     """
-    app = create_app(settings)
+    app = create_app(settings, shared_agent=shared_agent)
     
     launch_kwargs = {
         "server_name": server_name,
