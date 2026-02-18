@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "local-pigeon"
-version = "0.3.1"
+version = "0.4.0"
 description = "Local AI agent with Discord/Telegram, Google Workspace, and payments - powered by Ollama"
 readme = "README.md"
 license = "MIT"

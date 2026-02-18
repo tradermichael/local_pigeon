@@ -20,6 +20,7 @@
 - **Local LLM Inference** - Uses Ollama for on-device model inference
 - **Privacy First** - Your conversations never leave your device
 - **Multi-Platform** - Discord, Telegram, and Web UI support
+- **MCP Integration** - Connect to the Model Context Protocol tool ecosystem
 - **Extensible Tools** - Web search, browser automation, and more
 - **Browser Automation** - Navigate dynamic websites with Playwright (Google Flights, etc.)
 - **Voice Input** - Speech-to-text for hands-free interaction
@@ -30,6 +31,62 @@
 - **Human-in-the-Loop** - Approval workflow for sensitive operations
 - **Activity Dashboard** - Track interactions across all platforms
 - **Easy Setup** - One-command installation
+
+## Architecture
+
+```mermaid
+flowchart TB
+    subgraph Platforms["User Interfaces"]
+        Discord[Discord Bot]
+        Telegram[Telegram Bot]
+        WebUI[Web UI]
+    end
+
+    subgraph Core["Agent Core"]
+        Agent[Local Pigeon Agent]
+        Conversation[Conversation Manager]
+        ToolRegistry[Tool Registry]
+    end
+
+    subgraph LLM["Language Model"]
+        Ollama[Ollama]
+        LlamaCpp[llama-cpp-python]
+    end
+
+    subgraph Tools["Built-in Tools"]
+        WebTools[Web Search & Browser]
+        GoogleTools[Gmail / Calendar / Drive]
+        PaymentTools[Stripe / Crypto]
+        DiscordTools[Discord Actions]
+        MemoryTools[Memory & Scheduling]
+    end
+
+    subgraph MCP["MCP Ecosystem"]
+        MCPManager[MCP Manager]
+        MCPServers["External MCP Servers<br/>(GitHub, Filesystem, DB, etc.)"]
+    end
+
+    subgraph Storage["Storage Layer"]
+        SQLite[(SQLite DB)]
+        Credentials[Encrypted Credentials]
+    end
+
+    Platforms --> Agent
+    Agent <--> Conversation
+    Agent <--> ToolRegistry
+    Agent <--> LLM
+    ToolRegistry --> Tools
+    ToolRegistry --> MCPManager
+    MCPManager <--> MCPServers
+    Agent <--> Storage
+
+    style Platforms fill:#e1f5fe
+    style Core fill:#fff3e0
+    style LLM fill:#f3e5f5
+    style Tools fill:#e8f5e9
+    style MCP fill:#fce4ec
+    style Storage fill:#f5f5f5
+```
 
 ## Prerequisites
 
@@ -229,6 +286,62 @@ Access at `http://localhost:7860` when running with `--platform web`.
 - **List Channels** - See available channels
 - **Create Threads** - Start discussion threads
 
+## MCP Integration
+
+Local Pigeon supports the [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) - an open standard for connecting AI agents to external tools and data sources.
+
+### What is MCP?
+
+MCP allows Local Pigeon to dynamically discover and use tools from external servers. This means you can extend your agent's capabilities without modifying core code.
+
+### Popular MCP Servers
+
+| Server | Description | Transport |
+|--------|-------------|-----------|
+| **brave-search** | Web search via Brave API | stdio |
+| **github** | GitHub repository operations | stdio |
+| **filesystem** | Local file system access | stdio |
+| **postgres** | PostgreSQL database queries | stdio |
+| **fetch** | HTTP requests & web content | stdio |
+| **memory** | Persistent key-value storage | stdio |
+| **puppeteer** | Browser automation | stdio |
+| **slack** | Slack workspace integration | stdio |
+
+### Configuration
+
+Add MCP servers in `config.yaml`:
+
+```yaml
+mcp:
+  enabled: true
+  auto_approve: false  # require approval for MCP tool calls
+  connection_timeout: 30
+  
+  servers:
+    - name: filesystem
+      transport: stdio
+      command: npx
+      args: ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/allowed/dir"]
+    
+    - name: github
+      transport: stdio
+      command: npx
+      args: ["-y", "@modelcontextprotocol/server-github"]
+      env:
+        GITHUB_PERSONAL_ACCESS_TOKEN: "${GITHUB_TOKEN}"
+```
+
+Or add servers via the Web UI: **Settings → Integrations → MCP Servers**
+
+### Using MCP Tools
+
+Once connected, MCP tools appear automatically in the agent's tool registry with the naming convention `mcp_{server}_{tool}`. For example:
+- `mcp_github_create_issue`
+- `mcp_filesystem_read_file`
+- `mcp_postgres_query`
+
+The agent can then use these tools naturally in conversations.
+
 ## Payment System
 
 Local Pigeon supports both traditional and crypto payments:
@@ -272,11 +385,12 @@ local_pigeon/
 │   └── local_pigeon/
 │       ├── core/           # Agent, LLM client, conversation, model catalog
 │       ├── platforms/      # Discord, Telegram adapters
-│       ├── tools/          # Web, Google, Payment, Discord tools
+│       ├── tools/          # Tool registry and implementations
 │       │   ├── web/        # Search, fetch, browser automation
 │       │   ├── google/     # Gmail, Calendar, Drive
 │       │   ├── discord/    # Discord action tools
-│       │   └── payments/   # Stripe, crypto wallet
+│       │   ├── payments/   # Stripe, crypto wallet
+│       │   └── mcp/        # MCP server connections & adapters
 │       ├── storage/        # Database, credentials
 │       ├── ui/             # Gradio web interface
 │       ├── config.py       # Configuration management
@@ -350,6 +464,7 @@ MIT License - see [LICENSE](LICENSE) for details.
 ## Acknowledgments
 
 - [Ollama](https://ollama.ai) - Local LLM runtime
+- [Model Context Protocol](https://modelcontextprotocol.io/) - MCP tool ecosystem
 - [Playwright](https://playwright.dev) - Browser automation
 - [discord.py](https://discordpy.readthedocs.io/) - Discord API wrapper
 - [aiogram](https://docs.aiogram.dev/) - Telegram Bot framework
