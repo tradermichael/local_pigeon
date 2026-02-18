@@ -647,6 +647,27 @@ def version():
     console.print(Panel(f"[bold bright_white]BOTF AI[/] [cyan]v{__version__}[/]\n\n[dim]A fully local AI agent powered by Ollama[/]", border_style="bright_cyan", box=ROUNDED))
 
 
+@app.command()
+def doctor(
+    host: str = typer.Option("http://localhost:11434", help="Ollama host URL to check"),
+):
+    """Run diagnostics to check system health.
+
+    Checks Ollama connectivity, installed models, data directory,
+    database, platform credentials, and optional dependencies.
+    Provides actionable fix hints for any issues found.
+    """
+    from local_pigeon.diagnostics import run_doctor
+
+    print_banner(small=True)
+    console.print("[bold bright_white]🩺 Running diagnostics...[/]\n")
+
+    report = asyncio.run(run_doctor(host))
+    console.print(report.format())
+
+    raise typer.Exit(code=0 if report.passed else 1)
+
+
 def main():
     app()
 
