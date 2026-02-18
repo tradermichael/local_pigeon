@@ -42,6 +42,9 @@ pyyaml>=6.0
 SpeechRecognition>=3.10
 playwright>=1.40
 
+# MCP (Model Context Protocol)
+mcp>=1.0.0
+
 # =============================================================================
 # OPTIONAL DEPENDENCIES
 # Install with: pip install local-pigeon[all]

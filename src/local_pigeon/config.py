@@ -388,6 +388,39 @@ class BrowserSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="BROWSER_")
 
 
+class MCPServerSettings(BaseSettings):
+    """Settings for a single MCP server."""
+    
+    name: str = Field(default="", description="Unique name for this MCP server")
+    transport: str = Field(default="stdio", description="Transport type: stdio or sse")
+    command: str = Field(default="npx", description="Command to launch stdio server")
+    args: list[str] = Field(default_factory=list, description="Command arguments")
+    url: str = Field(default="", description="URL for SSE transport server")
+    env: dict[str, str] = Field(default_factory=dict, description="Environment variables")
+    
+    model_config = SettingsConfigDict(extra="allow")
+
+
+class MCPSettings(BaseSettings):
+    """MCP (Model Context Protocol) settings."""
+    
+    enabled: bool = Field(default=False, description="Enable MCP tool integration")
+    servers: list[MCPServerSettings] = Field(
+        default_factory=list,
+        description="List of MCP servers to connect to"
+    )
+    auto_approve: bool = Field(
+        default=False,
+        description="Auto-approve MCP tool calls (vs requiring approval)"
+    )
+    connection_timeout: int = Field(
+        default=30,
+        description="Timeout for connecting to MCP servers (seconds)"
+    )
+    
+    model_config = SettingsConfigDict(env_prefix="MCP_")
+
+
 class WebSettings(BaseSettings):
     """Combined web settings."""
     
@@ -530,6 +563,7 @@ class Settings(BaseSettings):
     google: GoogleSettings = Field(default_factory=GoogleSettings)
     payments: PaymentSettings = Field(default_factory=PaymentSettings)
     web: WebSettings = Field(default_factory=WebSettings)
+    mcp: MCPSettings = Field(default_factory=MCPSettings)
     
     # Storage and UI
     storage: StorageSettings = Field(default_factory=StorageSettings)
@@ -614,6 +648,20 @@ class Settings(BaseSettings):
                 drive_config = google_config["drive"]
                 if "enabled" in drive_config and not os.environ.get("GOOGLE_DRIVE_ENABLED"):
                     settings.google.drive_enabled = drive_config["enabled"]
+        
+        # Handle MCP section
+        if "mcp" in yaml_config:
+            mcp_config = yaml_config["mcp"]
+            if "enabled" in mcp_config and not os.environ.get("MCP_ENABLED"):
+                settings.mcp.enabled = mcp_config["enabled"]
+            if "connection_timeout" in mcp_config:
+                settings.mcp.connection_timeout = mcp_config["connection_timeout"]
+            if "auto_approve" in mcp_config:
+                settings.mcp.auto_approve = mcp_config["auto_approve"]
+            if "servers" in mcp_config and mcp_config["servers"]:
+                settings.mcp.servers = [
+                    MCPServerSettings(**srv) for srv in mcp_config["servers"]
+                ]
         
         # Apply env vars for nested settings (pydantic nested models don't auto-read env vars)
         # Discord

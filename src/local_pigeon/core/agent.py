@@ -10,6 +10,7 @@ The main agent orchestration layer that:
 """
 
 import asyncio
+import logging
 import uuid
 from dataclasses import dataclass
 from datetime import datetime
@@ -27,6 +28,8 @@ from local_pigeon.storage.failure_log import AsyncFailureLog
 from local_pigeon.storage.user_settings import UserSettingsStore
 from local_pigeon.storage.database import Database
 from local_pigeon.tools.registry import ToolRegistry, Tool
+
+logger = logging.getLogger(__name__)
 
 
 class LLMBackend(Enum):
@@ -233,6 +236,9 @@ class LocalPigeonAgent:
         self.tools = ToolRegistry()
         self._register_default_tools()
         
+        # Initialize MCP manager (connected in initialize() if enabled)
+        self.mcp_manager: Any = None
+        
         # Pending approvals
         self._pending_approvals: dict[str, PendingApproval] = {}
         
@@ -255,6 +261,9 @@ class LocalPigeonAgent:
         # Initialize database schema (creates tables if not exist)
         await self._database.initialize()
         
+        # Connect to MCP servers (if enabled)
+        await self._connect_mcp_servers()
+        
         # Start heartbeat if enabled
         if self.settings.agent.heartbeat_enabled:
             await self.heartbeat.start()
@@ -271,6 +280,10 @@ class LocalPigeonAgent:
         
         # Stop scheduler
         await self.scheduler.stop()
+        
+        # Disconnect MCP servers
+        if self.mcp_manager:
+            await self.mcp_manager.disconnect_all()
         
         # Close LLM client session
         if self.llm:
@@ -393,6 +406,85 @@ class LocalPigeonAgent:
         
         return [tool.name for tool in self.tools.list_tools()]
     
+    async def _connect_mcp_servers(self) -> None:
+        """Connect to configured MCP servers and register their tools."""
+        if not self.settings.mcp.enabled:
+            return
+        
+        if not self.settings.mcp.servers:
+            return
+        
+        from local_pigeon.tools.mcp import MCPManager, create_mcp_tools
+        
+        self.mcp_manager = MCPManager(
+            connection_timeout=self.settings.mcp.connection_timeout
+        )
+        
+        for server_config in self.settings.mcp.servers:
+            if not server_config.name:
+                continue
+            try:
+                if server_config.transport == "stdio":
+                    await self.mcp_manager.connect_stdio_server(
+                        name=server_config.name,
+                        command=server_config.command,
+                        args=server_config.args,
+                        env=server_config.env or None,
+                    )
+                elif server_config.transport == "sse":
+                    await self.mcp_manager.connect_sse_server(
+                        name=server_config.name,
+                        url=server_config.url,
+                    )
+                else:
+                    logger.warning(
+                        f"Unknown MCP transport '{server_config.transport}' "
+                        f"for server '{server_config.name}'"
+                    )
+            except Exception as e:
+                logger.error(
+                    f"Failed to connect to MCP server '{server_config.name}': {e}"
+                )
+        
+        # Register all discovered MCP tools
+        mcp_tools = create_mcp_tools(
+            manager=self.mcp_manager,
+            require_approval=not self.settings.mcp.auto_approve,
+        )
+        
+        for tool in mcp_tools:
+            self.tools.register(tool)
+        
+        if mcp_tools:
+            logger.info(f"Registered {len(mcp_tools)} MCP tools")
+    
+    async def reload_mcp_servers(self) -> list[str]:
+        """
+        Reload MCP servers from config without full restart.
+        
+        Returns:
+            List of newly registered MCP tool names
+        """
+        # Disconnect existing MCP servers
+        if self.mcp_manager:
+            await self.mcp_manager.disconnect_all()
+        
+        # Unregister existing MCP tools
+        existing_tools = list(self.tools._tools.keys())
+        for name in existing_tools:
+            if name.startswith("mcp_"):
+                self.tools.unregister(name)
+        
+        # Reload settings
+        from local_pigeon.config import reload_settings
+        self.settings = reload_settings()
+        
+        # Reconnect
+        await self._connect_mcp_servers()
+        
+        # Return new tool names
+        return [t.name for t in self.tools.list_tools() if t.name.startswith("mcp_")]
+
     def register_discord_tools(self, bot: Any) -> None:
         """
         Register Discord-specific tools with the bot instance.

@@ -1329,6 +1329,146 @@ def create_app(
                         interactive=False,
                     )
                     save_stripe_btn = gr.Button("💾 Save Stripe Settings")
+                
+                # MCP Servers section
+                _mcp_label = "🔌 MCP Servers"
+                if settings.mcp.enabled and settings.mcp.servers:
+                    _mcp_label = f"✅ MCP Servers ({len(settings.mcp.servers)} configured)"
+                
+                with gr.Accordion(_mcp_label, open=False):
+                    gr.Markdown(
+                        """
+                        **Model Context Protocol (MCP)** allows you to connect external tool servers
+                        that extend your agent's capabilities. MCP servers provide additional tools
+                        like filesystem access, database queries, API integrations, and more.
+                        
+                        Tools from connected MCP servers appear automatically and the agent can use them.
+                        
+                        **Requires Node.js/npm** for most MCP servers (stdio transport via npx).
+                        """
+                    )
+                    
+                    mcp_enabled = gr.Checkbox(
+                        label="Enable MCP Integration",
+                        value=settings.mcp.enabled,
+                    )
+                    
+                    mcp_auto_approve = gr.Checkbox(
+                        label="Auto-approve MCP tool calls (skip confirmation)",
+                        value=settings.mcp.auto_approve,
+                    )
+                    
+                    # Connected servers display
+                    gr.Markdown("### Connected Servers")
+                    mcp_servers_display = gr.Dataframe(
+                        headers=["Name", "Status", "Tools"],
+                        value=[["No servers connected", "", ""]],
+                        label="",
+                        interactive=False,
+                    )
+                    mcp_refresh_btn = gr.Button("🔄 Refresh Status", size="sm")
+                    
+                    gr.Markdown("---")
+                    gr.Markdown("### Add Popular Server")
+                    
+                    mcp_popular_choice = gr.Radio(
+                        choices=[
+                            "🔍 brave-search - Web search via Brave API",
+                            "🐙 github - GitHub repos, issues, PRs",
+                            "📁 filesystem - Read/write local files",
+                            "🗄️ postgres - PostgreSQL database queries",
+                            "🔗 fetch - HTTP requests to external APIs",
+                            "💾 memory - Persistent key-value store",
+                            "🎭 puppeteer - Browser automation",
+                            "💬 slack - Slack workspace integration",
+                        ],
+                        label="Select a server template",
+                        value=None,
+                    )
+                    
+                    # Dynamic config fields
+                    with gr.Group():
+                        mcp_server_name = gr.Textbox(
+                            label="Server Name",
+                            placeholder="e.g., my-github",
+                            interactive=True,
+                        )
+                        mcp_api_key = gr.Textbox(
+                            label="API Key / Token (if required)",
+                            type="password",
+                            placeholder="Enter API key or token",
+                        )
+                        mcp_path_input = gr.Textbox(
+                            label="Allowed Path (for filesystem server)",
+                            placeholder="C:/Users/YourName/Documents",
+                            visible=True,
+                        )
+                    
+                    with gr.Row():
+                        mcp_test_btn = gr.Button("🔌 Test Connection")
+                        mcp_add_btn = gr.Button("➕ Add Server", variant="primary")
+                    
+                    mcp_result = gr.Textbox(
+                        label="Result",
+                        interactive=False,
+                        lines=3,
+                    )
+                    
+                    gr.Markdown("---")
+                    gr.Markdown("### Add Custom Server")
+                    
+                    with gr.Row():
+                        mcp_custom_name = gr.Textbox(
+                            label="Server Name",
+                            placeholder="my-custom-server",
+                        )
+                        mcp_custom_transport = gr.Dropdown(
+                            choices=["stdio", "sse"],
+                            value="stdio",
+                            label="Transport",
+                        )
+                    
+                    with gr.Row():
+                        mcp_custom_command = gr.Textbox(
+                            label="Command",
+                            value="npx",
+                            placeholder="npx",
+                        )
+                        mcp_custom_args = gr.Textbox(
+                            label="Arguments (comma-separated)",
+                            placeholder="-y, @org/mcp-server-name",
+                        )
+                    
+                    mcp_custom_env = gr.Textbox(
+                        label="Environment Variables (KEY=value, one per line)",
+                        placeholder="API_KEY=your_key_here\nANOTHER_VAR=value",
+                        lines=3,
+                    )
+                    
+                    mcp_custom_url = gr.Textbox(
+                        label="URL (for SSE transport only)",
+                        placeholder="http://localhost:3000/sse",
+                        visible=False,
+                    )
+                    
+                    with gr.Row():
+                        mcp_test_custom_btn = gr.Button("🔌 Test Custom Connection")
+                        mcp_add_custom_btn = gr.Button("➕ Add Custom Server", variant="primary")
+                    
+                    mcp_custom_result = gr.Textbox(
+                        label="Result",
+                        interactive=False,
+                        lines=3,
+                    )
+                    
+                    # Remove server
+                    gr.Markdown("---")
+                    gr.Markdown("### Remove Server")
+                    mcp_remove_choice = gr.Dropdown(
+                        choices=[],
+                        label="Select server to remove",
+                    )
+                    mcp_remove_btn = gr.Button("🗑️ Remove Server", variant="stop")
             
             # Tools Tab
             with gr.Tab("🧰 Tools"):
@@ -3268,6 +3408,468 @@ def create_app(
             fn=save_stripe_settings,
             inputs=[stripe_enabled, stripe_key_input],
             outputs=[stripe_status],
+        )
+        
+        # ========== MCP Handlers ==========
+        
+        async def refresh_mcp_status():
+            """Get status of connected MCP servers."""
+            try:
+                current_agent = await get_agent()
+                rows = []
+                
+                if current_agent.mcp_manager:
+                    for conn in current_agent.mcp_manager.list_connections():
+                        status = "✅ Connected" if conn.connected else "❌ Disconnected"
+                        tool_count = len(conn.tools)
+                        tool_names = ", ".join(t.name for t in conn.tools[:3])
+                        if len(conn.tools) > 3:
+                            tool_names += f" (+{len(conn.tools) - 3} more)"
+                        rows.append([conn.name, status, f"{tool_count}: {tool_names}"])
+                
+                if not rows:
+                    rows.append(["No servers connected", "", ""])
+                
+                # Get list of server names for removal dropdown
+                server_names = []
+                if current_agent.mcp_manager:
+                    server_names = [conn.name for conn in current_agent.mcp_manager.list_connections()]
+                
+                return rows, gr.update(choices=server_names)
+            except Exception as e:
+                return [["Error", str(e), ""]], gr.update(choices=[])
+        
+        mcp_refresh_btn.click(
+            fn=refresh_mcp_status,
+            outputs=[mcp_servers_display, mcp_remove_choice],
+        )
+        
+        def on_popular_server_selected(choice: str | None):
+            """Update config fields based on selected popular server."""
+            if not choice:
+                return "", "", gr.update(visible=True)
+            
+            # Parse server name from choice
+            parts = choice.split(" - ")
+            server_key = parts[0].split(" ")[-1] if parts else ""
+            
+            from local_pigeon.tools.mcp.manager import POPULAR_MCP_SERVERS
+            server_info = POPULAR_MCP_SERVERS.get(server_key, {})
+            
+            show_path = server_info.get("requires_path", False)
+            
+            return (
+                server_key,  # name
+                "",  # api key
+                gr.update(visible=show_path),  # path input visibility
+            )
+        
+        mcp_popular_choice.change(
+            fn=on_popular_server_selected,
+            inputs=[mcp_popular_choice],
+            outputs=[mcp_server_name, mcp_api_key, mcp_path_input],
+        )
+        
+        def toggle_custom_url_visibility(transport: str):
+            """Show/hide URL field based on transport type."""
+            return gr.update(visible=(transport == "sse"))
+        
+        mcp_custom_transport.change(
+            fn=toggle_custom_url_visibility,
+            inputs=[mcp_custom_transport],
+            outputs=[mcp_custom_url],
+        )
+        
+        async def test_mcp_server(choice: str | None, name: str, api_key: str, path: str):
+            """Test connection to an MCP server."""
+            if not choice or not name:
+                return "❌ Please select a server and enter a name"
+            
+            parts = choice.split(" - ")
+            server_key = parts[0].split(" ")[-1] if parts else ""
+            
+            from local_pigeon.tools.mcp.manager import POPULAR_MCP_SERVERS, MCPManager
+            server_info = POPULAR_MCP_SERVERS.get(server_key)
+            
+            if not server_info:
+                return f"❌ Unknown server: {server_key}"
+            
+            # Build args
+            args = list(server_info["args"])
+            if server_info.get("requires_path") and path:
+                args.append(path)
+            
+            # Build env
+            env = {}
+            if server_info.get("requires_env"):
+                for env_key in server_info["requires_env"]:
+                    if api_key:
+                        env[env_key] = api_key
+            
+            manager = MCPManager(connection_timeout=15)
+            
+            try:
+                connection = await manager.connect_stdio_server(
+                    name=name,
+                    command=server_info["command"],
+                    args=args,
+                    env=env if env else None,
+                )
+                
+                tool_names = [t.name for t in connection.tools]
+                await manager.disconnect_all()
+                
+                return f"✅ Connected! Found {len(tool_names)} tools:\n" + "\n".join(f"  • {t}" for t in tool_names[:10])
+                
+            except Exception as e:
+                return f"❌ Connection failed: {str(e)}"
+        
+        mcp_test_btn.click(
+            fn=test_mcp_server,
+            inputs=[mcp_popular_choice, mcp_server_name, mcp_api_key, mcp_path_input],
+            outputs=[mcp_result],
+        )
+        
+        async def add_mcp_server(
+            choice: str | None,
+            name: str,
+            api_key: str,
+            path: str,
+            mcp_enabled_val: bool,
+            auto_approve_val: bool,
+        ):
+            """Add an MCP server to config and connect."""
+            if not choice or not name:
+                return "❌ Please select a server and enter a name", [["No servers connected", "", ""]], gr.update()
+            
+            parts = choice.split(" - ")
+            server_key = parts[0].split(" ")[-1] if parts else ""
+            
+            from local_pigeon.tools.mcp.manager import POPULAR_MCP_SERVERS
+            server_info = POPULAR_MCP_SERVERS.get(server_key)
+            
+            if not server_info:
+                return f"❌ Unknown server: {server_key}", [["No servers connected", "", ""]], gr.update()
+            
+            # Build args
+            args = list(server_info["args"])
+            if server_info.get("requires_path") and path:
+                args.append(path)
+            
+            # Build env
+            env = {}
+            if server_info.get("requires_env"):
+                for env_key in server_info["requires_env"]:
+                    if api_key:
+                        env[env_key] = api_key
+            
+            # Build server config
+            server_config = {
+                "name": name,
+                "transport": server_info["transport"],
+                "command": server_info["command"],
+                "args": args,
+            }
+            if env:
+                server_config["env"] = env
+            
+            # Save to config.yaml
+            import yaml
+            config_path = get_data_dir() / "config.yaml"
+            
+            if config_path.exists():
+                with open(config_path) as f:
+                    config = yaml.safe_load(f) or {}
+            else:
+                config = {}
+            
+            if "mcp" not in config:
+                config["mcp"] = {"enabled": True, "servers": []}
+            
+            config["mcp"]["enabled"] = mcp_enabled_val
+            config["mcp"]["auto_approve"] = auto_approve_val
+            
+            if "servers" not in config["mcp"]:
+                config["mcp"]["servers"] = []
+            
+            # Check if already exists
+            existing_names = [s.get("name") for s in config["mcp"]["servers"]]
+            if name in existing_names:
+                for i, s in enumerate(config["mcp"]["servers"]):
+                    if s.get("name") == name:
+                        config["mcp"]["servers"][i] = server_config
+                        break
+            else:
+                config["mcp"]["servers"].append(server_config)
+            
+            with open(config_path, "w") as f:
+                yaml.dump(config, f, default_flow_style=False)
+            
+            # Reload MCP servers in agent
+            try:
+                current_agent = await get_agent()
+                tools = await current_agent.reload_mcp_servers()
+                
+                # Refresh display
+                rows = []
+                if current_agent.mcp_manager:
+                    for conn in current_agent.mcp_manager.list_connections():
+                        status = "✅ Connected" if conn.connected else "❌ Disconnected"
+                        tool_count = len(conn.tools)
+                        rows.append([conn.name, status, f"{tool_count} tools"])
+                
+                if not rows:
+                    rows.append(["No servers connected", "", ""])
+                
+                server_names = []
+                if current_agent.mcp_manager:
+                    server_names = [conn.name for conn in current_agent.mcp_manager.list_connections()]
+                
+                return (
+                    f"✅ Added server '{name}' with {len(tools)} total MCP tools now available",
+                    rows,
+                    gr.update(choices=server_names),
+                )
+            except Exception as e:
+                return (
+                    f"⚠️ Saved to config but failed to connect: {str(e)}",
+                    [["Error connecting", "", ""]],
+                    gr.update(choices=[]),
+                )
+        
+        mcp_add_btn.click(
+            fn=add_mcp_server,
+            inputs=[mcp_popular_choice, mcp_server_name, mcp_api_key, mcp_path_input, mcp_enabled, mcp_auto_approve],
+            outputs=[mcp_result, mcp_servers_display, mcp_remove_choice],
+        )
+        
+        async def add_custom_mcp_server(
+            name: str,
+            transport: str,
+            command: str,
+            args_str: str,
+            env_str: str,
+            url: str,
+            mcp_enabled_val: bool,
+            auto_approve_val: bool,
+        ):
+            """Add a custom MCP server to config and connect."""
+            if not name:
+                return "❌ Please enter a server name", [["No servers connected", "", ""]], gr.update()
+            
+            # Parse args
+            args = [a.strip() for a in args_str.split(",") if a.strip()] if args_str else []
+            
+            # Parse env
+            env = {}
+            if env_str:
+                for line in env_str.strip().split("\n"):
+                    if "=" in line:
+                        key, val = line.split("=", 1)
+                        env[key.strip()] = val.strip()
+            
+            # Build server config
+            server_config = {
+                "name": name,
+                "transport": transport,
+            }
+            
+            if transport == "stdio":
+                server_config["command"] = command or "npx"
+                server_config["args"] = args
+            else:
+                server_config["url"] = url
+            
+            if env:
+                server_config["env"] = env
+            
+            # Save to config.yaml
+            import yaml
+            config_path = get_data_dir() / "config.yaml"
+            
+            if config_path.exists():
+                with open(config_path) as f:
+                    config = yaml.safe_load(f) or {}
+            else:
+                config = {}
+            
+            if "mcp" not in config:
+                config["mcp"] = {"enabled": True, "servers": []}
+            
+            config["mcp"]["enabled"] = mcp_enabled_val
+            config["mcp"]["auto_approve"] = auto_approve_val
+            
+            if "servers" not in config["mcp"]:
+                config["mcp"]["servers"] = []
+            
+            # Check if already exists
+            existing_names = [s.get("name") for s in config["mcp"]["servers"]]
+            if name in existing_names:
+                for i, s in enumerate(config["mcp"]["servers"]):
+                    if s.get("name") == name:
+                        config["mcp"]["servers"][i] = server_config
+                        break
+            else:
+                config["mcp"]["servers"].append(server_config)
+            
+            with open(config_path, "w") as f:
+                yaml.dump(config, f, default_flow_style=False)
+            
+            # Reload MCP servers in agent
+            try:
+                current_agent = await get_agent()
+                tools = await current_agent.reload_mcp_servers()
+                
+                # Refresh display
+                rows = []
+                if current_agent.mcp_manager:
+                    for conn in current_agent.mcp_manager.list_connections():
+                        status = "✅ Connected" if conn.connected else "❌ Disconnected"
+                        tool_count = len(conn.tools)
+                        rows.append([conn.name, status, f"{tool_count} tools"])
+                
+                if not rows:
+                    rows.append(["No servers connected", "", ""])
+                
+                server_names = []
+                if current_agent.mcp_manager:
+                    server_names = [conn.name for conn in current_agent.mcp_manager.list_connections()]
+                
+                return (
+                    f"✅ Added custom server '{name}' with {len(tools)} total MCP tools",
+                    rows,
+                    gr.update(choices=server_names),
+                )
+            except Exception as e:
+                return (
+                    f"⚠️ Saved to config but failed to connect: {str(e)}",
+                    [["Error connecting", "", ""]],
+                    gr.update(choices=[]),
+                )
+        
+        mcp_add_custom_btn.click(
+            fn=add_custom_mcp_server,
+            inputs=[mcp_custom_name, mcp_custom_transport, mcp_custom_command, mcp_custom_args, mcp_custom_env, mcp_custom_url, mcp_enabled, mcp_auto_approve],
+            outputs=[mcp_custom_result, mcp_servers_display, mcp_remove_choice],
+        )
+        
+        async def test_custom_mcp_server(
+            name: str,
+            transport: str,
+            command: str,
+            args_str: str,
+            env_str: str,
+            url: str,
+        ):
+            """Test connection to a custom MCP server."""
+            if not name:
+                return "❌ Please enter a server name"
+            
+            from local_pigeon.tools.mcp.manager import MCPManager
+            
+            # Parse args
+            args = [a.strip() for a in args_str.split(",") if a.strip()] if args_str else []
+            
+            # Parse env
+            env = {}
+            if env_str:
+                for line in env_str.strip().split("\n"):
+                    if "=" in line:
+                        key, val = line.split("=", 1)
+                        env[key.strip()] = val.strip()
+            
+            manager = MCPManager(connection_timeout=15)
+            
+            try:
+                if transport == "stdio":
+                    connection = await manager.connect_stdio_server(
+                        name=name,
+                        command=command or "npx",
+                        args=args,
+                        env=env if env else None,
+                    )
+                else:
+                    connection = await manager.connect_sse_server(
+                        name=name,
+                        url=url,
+                    )
+                
+                tool_names = [t.name for t in connection.tools]
+                await manager.disconnect_all()
+                
+                return f"✅ Connected! Found {len(tool_names)} tools:\n" + "\n".join(f"  • {t}" for t in tool_names[:10])
+                
+            except Exception as e:
+                return f"❌ Connection failed: {str(e)}"
+        
+        mcp_test_custom_btn.click(
+            fn=test_custom_mcp_server,
+            inputs=[mcp_custom_name, mcp_custom_transport, mcp_custom_command, mcp_custom_args, mcp_custom_env, mcp_custom_url],
+            outputs=[mcp_custom_result],
+        )
+        
+        async def remove_mcp_server(server_name: str | None):
+            """Remove an MCP server from config."""
+            if not server_name:
+                return "❌ Please select a server to remove", [["No servers connected", "", ""]], gr.update()
+            
+            import yaml
+            config_path = get_data_dir() / "config.yaml"
+            
+            if config_path.exists():
+                with open(config_path) as f:
+                    config = yaml.safe_load(f) or {}
+            else:
+                return "❌ No config file found", [["No servers connected", "", ""]], gr.update()
+            
+            if "mcp" not in config or "servers" not in config["mcp"]:
+                return "❌ No MCP servers configured", [["No servers connected", "", ""]], gr.update()
+            
+            # Remove server
+            config["mcp"]["servers"] = [
+                s for s in config["mcp"]["servers"]
+                if s.get("name") != server_name
+            ]
+            
+            with open(config_path, "w") as f:
+                yaml.dump(config, f, default_flow_style=False)
+            
+            # Reload MCP servers
+            try:
+                current_agent = await get_agent()
+                await current_agent.reload_mcp_servers()
+                
+                # Refresh display
+                rows = []
+                if current_agent.mcp_manager:
+                    for conn in current_agent.mcp_manager.list_connections():
+                        status = "✅ Connected" if conn.connected else "❌ Disconnected"
+                        tool_count = len(conn.tools)
+                        rows.append([conn.name, status, f"{tool_count} tools"])
+                
+                if not rows:
+                    rows.append(["No servers connected", "", ""])
+                
+                server_names = []
+                if current_agent.mcp_manager:
+                    server_names = [conn.name for conn in current_agent.mcp_manager.list_connections()]
+                
+                return (
+                    f"✅ Removed server '{server_name}'",
+                    rows,
+                    gr.update(choices=server_names),
+                )
+            except Exception as e:
+                return (
+                    f"⚠️ Removed from config but error reloading: {str(e)}",
+                    [["Error", "", ""]],
+                    gr.update(choices=[]),
+                )
+        
+        mcp_remove_btn.click(
+            fn=remove_mcp_server,
+            inputs=[mcp_remove_choice],
+            outputs=[mcp_result, mcp_servers_display, mcp_remove_choice],
         )
         
         save_browser_btn.click(
