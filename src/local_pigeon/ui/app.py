@@ -2010,6 +2010,29 @@ def create_app(
                             )
                             ```
                             
+                            ### Dependency Injection (Enterprise)
+
+                            Swap core components without forking:
+
+                            ```python
+                            from local_pigeon.core.agent import LocalPigeonAgent
+                            from local_pigeon.core.interfaces import (
+                                MemoryProvider,
+                                NetworkProvider,
+                                ToolProvider,
+                            )
+
+                            agent = LocalPigeonAgent(
+                                settings=settings,
+                                memory_provider=my_memory_provider,
+                                network_provider=my_network_provider,
+                                tool_provider=my_tool_provider,
+                            )
+                            await agent.initialize()
+                            ```
+
+                            The default runtime uses `DefaultToolProvider`.
+
                             ### Tool Registry
                             
                             Register and manage tools:
@@ -2027,25 +2050,24 @@ def create_app(
                             result = await registry.execute("tool_name", param1="value")
                             ```
                             
-                            ### Memory Manager
+                            ### Memory Provider
                             
                             Store and retrieve user memories:
                             
                             ```python
-                            from local_pigeon.storage.memory import AsyncMemoryManager, MemoryType
-                            
-                            memory = AsyncMemoryManager(db_path="local_pigeon.db")
-                            
-                            # Store a memory
-                            await memory.set_memory(
+                            # Your provider implements the MemoryProvider interface
+                            await my_memory_provider.save_context(
                                 user_id="user123",
                                 key="favorite_color",
-                                value="blue",
-                                memory_type=MemoryType.PREFERENCE,
+                                text="blue",
+                                memory_type="preference",
                             )
                             
-                            # Retrieve memories
-                            memories = await memory.get_all_memories("user123")
+                            # Retrieve relevant context
+                            memories = await my_memory_provider.retrieve_context(
+                                user_id="user123",
+                                query="favorite color",
+                            )
                             ```
                             
                             ### Conversation Manager
@@ -2074,23 +2096,28 @@ def create_app(
                 data_dir = get_data_dir()
                 gr.Markdown(
                     f"""
-                    ### Local Pigeon
+                    ### BOTF AI (Local Pigeon)
                     
-                    **Version:** 0.1.0
+                    **Version:** {__version__}
                     
                     A fully local AI agent powered by Ollama. Your data stays on your device.
                     
                     **Features:**
                     - 🧠 Local LLM inference via Ollama
-                    - 🔧 Extensible tool system
+                    - 🔧 Dependency-injection ready tool system
                     - 💳 Payment capabilities (Stripe + Crypto)
                     - 📧 Google Workspace integration
                     - 🔐 Human-in-the-loop approvals
+                    - 🌐 Optional mesh plumbing (`--enable-mesh`)
                     - 💬 Multi-platform support (Discord, Telegram, Web)
                     
                     **Current Model:** {settings.ollama.model}
+
+                    **Mesh Enabled:** {'Yes' if getattr(settings, 'mesh', None) and settings.mesh.enabled else 'No'}
                     
                     **Data Directory:** `{data_dir}`
+
+                    **CLI:** `botf run` (alias: `local-pigeon run`)
                     
                     **Links:**
                     - [GitHub Repository](https://github.com/tradermichael/local_pigeon)

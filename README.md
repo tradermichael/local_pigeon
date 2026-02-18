@@ -22,6 +22,8 @@
 - **Multi-Platform** - Discord, Telegram, and Web UI support
 - **MCP Integration** - Connect to the Model Context Protocol tool ecosystem
 - **Extensible Tools** - Web search, browser automation, and more
+- **Dependency Injection Ready** - Swap memory/network/tool providers without forking
+- **Mesh Plumbing Built-in** - Optional WireGuard-based mesh bootstrap (`--enable-mesh`)
 - **Browser Automation** - Navigate dynamic websites with Playwright (Google Flights, etc.)
 - **Voice Input** - Speech-to-text for hands-free interaction
 - **Vision Support** - Image analysis with vision models (LLaVA, Moondream)
@@ -154,7 +156,8 @@ ollama pull gemma3:latest
 Run the setup wizard:
 
 ```bash
-local-pigeon setup
+botf setup
+# or: local-pigeon setup
 ```
 
 Or manually create a `.env` file:
@@ -186,14 +189,44 @@ PAYMENT_APPROVAL_THRESHOLD=25.00
 ### 3. Run Local Pigeon
 
 ```bash
-# Start all enabled platforms
-local-pigeon run
+# Start all enabled platforms from your settings
+botf run
 
-# Or run specific platform
-local-pigeon run --platform discord
-local-pigeon run --platform telegram
-local-pigeon run --platform web
+# Optional: start with mesh plumbing enabled
+botf run --enable-mesh
+
+# Legacy command alias still works
+local-pigeon run
 ```
+
+### 4. Enterprise Extension Points (Dependency Injection)
+
+Local Pigeon supports provider-based dependency injection so enterprise builds can swap core components without forking.
+
+- `MemoryProvider` interface for context persistence/retrieval
+- `NetworkProvider` interface for mesh/federation connectivity
+- `ToolProvider` interface for tool injection (default provider is included)
+
+Example:
+
+```python
+from local_pigeon.core.agent import LocalPigeonAgent
+from local_pigeon.core.interfaces import MemoryProvider, NetworkProvider, ToolProvider
+
+# Inject your own providers in enterprise builds
+agent = LocalPigeonAgent(
+  memory_provider=my_memory_provider,
+  network_provider=my_network_provider,
+  tool_provider=my_tool_provider,
+)
+```
+
+### 5. Mesh / WireGuard Stub
+
+- Mesh plumbing is built in and disabled by default.
+- Enable it at runtime with `--enable-mesh`.
+- WireGuard identity is persisted in `~/.botf/config.yaml`.
+- Install WireGuard tools (`wg`, `wg-quick`) on your host for full key generation/networking support.
 
 ## Model Catalog
 
@@ -207,7 +240,7 @@ Local Pigeon includes a curated catalog of models organized by capability:
 | **General** | Gemma 3, Llama 3.2, Mistral | General conversation |
 | **Small/Fast** | Qwen 2.5 0.5B-3B, Phi-3 Mini | Quick responses, low resources |
 
-Install models via the Web UI (Settings > Model Discovery) or command line:
+Install models via the Web UI (Settings > Model Selection) or command line:
 
 ```bash
 # Reasoning model
@@ -250,14 +283,14 @@ ollama pull qwen2.5-coder:7b
 
 ### Web UI
 
-Access at `http://localhost:7860` when running with `--platform web`.
+Access at `http://localhost:7860` when running `botf run` (or `local-pigeon run`).
 
 **Features:**
 - Chat interface with streaming
 - **Tool activity transparency** - See which tools the agent uses in real-time
 - Voice input (microphone)
 - Activity log across all platforms
-- Model discovery and installation
+- Model selection, discovery, and installation
 - Settings panel
 - OAuth setup for Google
 
@@ -430,19 +463,20 @@ ruff format .
 
 ```bash
 # Run the agent
-local-pigeon run [--platform discord|telegram|web]
+botf run [--enable-mesh]
+# alias: local-pigeon run [--enable-mesh]
 
 # Interactive setup wizard
-local-pigeon setup
+botf setup
 
 # Check system status
-local-pigeon status
+botf status
 
 # List available models
-local-pigeon models
+botf models
 
 # Interactive chat (terminal)
-local-pigeon chat
+botf chat
 
 # Show version
 local-pigeon version
