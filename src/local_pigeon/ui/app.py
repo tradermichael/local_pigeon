@@ -82,8 +82,51 @@ def create_app(
     
     # Modern theme CSS with light/dark mode support
     gemini_css = """
-    /* Root variables for dark theming (default) */
-    :root {
+    /* ==========================================
+       LIGHT MODE (default)
+       ========================================== */
+    :root,
+    body:not(.dark) {
+        --primary-color: #2563eb;
+        --primary-hover: #1d4ed8;
+        --bg-primary: #f8fafc;
+        --bg-secondary: #ffffff;
+        --bg-tertiary: #f1f5f9;
+        --bg-chat: #ffffff;
+        --text-primary: #0f172a;
+        --text-secondary: #334155;
+        --text-muted: #64748b;
+        --border-color: #cbd5e1;
+        --shadow-sm: 0 1px 3px rgba(0,0,0,0.08);
+        --shadow-md: 0 4px 12px rgba(0,0,0,0.12);
+        --radius-sm: 8px;
+        --radius-md: 12px;
+        --radius-lg: 20px;
+        --accent-blue: #3b82f6;
+        --accent-green: #16a34a;
+        --accent-purple: #9333ea;
+        --user-msg-bg: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+        --user-msg-text: #ffffff;
+        --bot-msg-bg: #f1f5f9;
+        --bot-msg-text: #0f172a;
+        --input-bg: #ffffff;
+        --input-border: #cbd5e1;
+        --focus-ring: rgba(37, 99, 235, 0.25);
+        --code-bg: #f1f5f9;
+        --code-text: #1e293b;
+        --tab-bg: #ffffff;
+        --tab-active-bg: #f8fafc;
+        --btn-secondary-bg: #f1f5f9;
+        --btn-secondary-text: #1e293b;
+        --btn-secondary-border: #cbd5e1;
+        --btn-secondary-hover: #e2e8f0;
+    }
+    
+    /* ==========================================
+       DARK MODE (triggered by .dark class on body)
+       ========================================== */
+    body.dark,
+    body.dark :root {
         --primary-color: #8ab4f8;
         --primary-hover: #aecbfa;
         --bg-primary: #1e1e2e;
@@ -96,99 +139,202 @@ def create_app(
         --border-color: #3f3f46;
         --shadow-sm: 0 1px 3px rgba(0,0,0,0.3);
         --shadow-md: 0 4px 12px rgba(0,0,0,0.4);
-        --radius-sm: 8px;
-        --radius-md: 12px;
-        --radius-lg: 20px;
-        --accent-blue: #3b82f6;
+        --accent-blue: #60a5fa;
         --accent-green: #22c55e;
         --accent-purple: #a855f7;
         --user-msg-bg: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
-        --user-msg-text: white;
-        --bot-msg-bg: var(--bg-tertiary);
-        --bot-msg-text: var(--text-primary);
-        --input-bg: var(--bg-tertiary);
+        --user-msg-text: #ffffff;
+        --bot-msg-bg: #3d3d4d;
+        --bot-msg-text: #f4f4f5;
+        --input-bg: #3d3d4d;
+        --input-border: #3f3f46;
         --focus-ring: rgba(138, 180, 248, 0.3);
+        --code-bg: #2d2d3d;
+        --code-text: #e2e8f0;
+        --tab-bg: #2d2d3d;
+        --tab-active-bg: #1e1e2e;
+        --btn-secondary-bg: #3d3d4d;
+        --btn-secondary-text: #f4f4f5;
+        --btn-secondary-border: #3f3f46;
+        --btn-secondary-hover: #4d4d5d;
     }
     
-    /* Light mode overrides */
-    @media (prefers-color-scheme: light) {
-        :root {
-            --primary-color: #2563eb;
-            --primary-hover: #1d4ed8;
-            --bg-primary: #f8fafc;
-            --bg-secondary: #ffffff;
-            --bg-tertiary: #f1f5f9;
-            --bg-chat: #ffffff;
-            --text-primary: #1e293b;
-            --text-secondary: #475569;
-            --text-muted: #64748b;
-            --border-color: #e2e8f0;
-            --shadow-sm: 0 1px 3px rgba(0,0,0,0.08);
-            --shadow-md: 0 4px 12px rgba(0,0,0,0.12);
-            --user-msg-bg: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
-            --user-msg-text: white;
-            --bot-msg-bg: #f1f5f9;
-            --bot-msg-text: #1e293b;
-            --input-bg: #ffffff;
-            --focus-ring: rgba(37, 99, 235, 0.25);
-            --accent-blue: #3b82f6;
-        }
-        
-        /* Light mode - dropdown and input fixes */
-        .gradio-container input,
-        .gradio-container select,
-        .gradio-container textarea,
-        .gradio-container .wrap input,
-        .gradio-container .wrap select {
-            background-color: #ffffff !important;
-            color: #1e293b !important;
-            border-color: #e2e8f0 !important;
-        }
-        
-        /* Dropdown menu items in light mode */
-        .gradio-container ul[role="listbox"],
-        .gradio-container .options,
-        .gradio-container .dropdown-content {
-            background-color: #ffffff !important;
-            border-color: #e2e8f0 !important;
-        }
-        
-        .gradio-container ul[role="listbox"] li,
-        .gradio-container .options li,
-        .gradio-container .option {
-            color: #1e293b !important;
-            background-color: #ffffff !important;
-        }
-        
-        .gradio-container ul[role="listbox"] li:hover,
-        .gradio-container .options li:hover,
-        .gradio-container .option:hover {
-            background-color: #f1f5f9 !important;
-        }
-        
-        /* Selected item in dropdown */
-        .gradio-container .wrap .selected,
-        .gradio-container .dropdown .selected,
-        .gradio-container input[type="text"] {
-            color: #1e293b !important;
-            background-color: #ffffff !important;
-        }
-        
-        /* Button text in light mode */
-        .gradio-container button:not(.primary) {
-            color: #1e293b !important;
-        }
-        
-        /* Labels and text */
-        .gradio-container label span,
-        .gradio-container .label-wrap span {
-            color: #1e293b !important;
-        }
+    /* ==========================================
+       LIGHT MODE — explicit overrides for Gradio components
+       (these fire when body does NOT have .dark class)
+       ========================================== */
+    body:not(.dark) .gradio-container,
+    body:not(.dark) .gradio-container * {
+        color: #0f172a;
     }
     
-    /* Global text color */
-    body, .gradio-container, .gradio-container * {
-        color: var(--text-primary) !important;
+    body:not(.dark) .gradio-container input,
+    body:not(.dark) .gradio-container select,
+    body:not(.dark) .gradio-container textarea,
+    body:not(.dark) .gradio-container .wrap input,
+    body:not(.dark) .gradio-container .wrap select {
+        background-color: #ffffff !important;
+        color: #0f172a !important;
+        border-color: #cbd5e1 !important;
+    }
+    
+    body:not(.dark) .gradio-container ul[role="listbox"],
+    body:not(.dark) .gradio-container .options,
+    body:not(.dark) .gradio-container .dropdown-content {
+        background-color: #ffffff !important;
+        border-color: #cbd5e1 !important;
+    }
+    
+    body:not(.dark) .gradio-container ul[role="listbox"] li,
+    body:not(.dark) .gradio-container .options li,
+    body:not(.dark) .gradio-container .option {
+        color: #0f172a !important;
+        background-color: #ffffff !important;
+    }
+    
+    body:not(.dark) .gradio-container ul[role="listbox"] li:hover,
+    body:not(.dark) .gradio-container .options li:hover,
+    body:not(.dark) .gradio-container .option:hover {
+        background-color: #f1f5f9 !important;
+    }
+    
+    body:not(.dark) .gradio-container .wrap .selected,
+    body:not(.dark) .gradio-container .dropdown .selected,
+    body:not(.dark) .gradio-container input[type="text"] {
+        color: #0f172a !important;
+        background-color: #ffffff !important;
+    }
+    
+    body:not(.dark) .gradio-container button:not(.primary) {
+        color: #1e293b !important;
+        background: #f1f5f9 !important;
+        border-color: #cbd5e1 !important;
+    }
+    
+    body:not(.dark) .gradio-container button:not(.primary):hover {
+        background: #e2e8f0 !important;
+    }
+    
+    body:not(.dark) .gradio-container label span,
+    body:not(.dark) .gradio-container .label-wrap span {
+        color: #0f172a !important;
+    }
+    
+    body:not(.dark) .gradio-container .chatbot {
+        background: #ffffff !important;
+        border-color: #cbd5e1 !important;
+    }
+    
+    body:not(.dark) .chatbot .message-row.bot-row .message {
+        background: #f1f5f9 !important;
+        color: #0f172a !important;
+        border-color: #e2e8f0 !important;
+    }
+    
+    body:not(.dark) .chatbot .message-row.bot-row .message * {
+        color: #0f172a !important;
+    }
+    
+    body:not(.dark) .chatbot .message-row.user-row .message,
+    body:not(.dark) .chatbot .message-row.user-row .message * {
+        color: #ffffff !important;
+    }
+    
+    body:not(.dark) .gradio-container .panel,
+    body:not(.dark) .gradio-container .block,
+    body:not(.dark) .gradio-container .form {
+        background: #ffffff !important;
+        border-color: #cbd5e1 !important;
+    }
+    
+    body:not(.dark) .gradio-container .accordion {
+        background: #ffffff !important;
+        border-color: #cbd5e1 !important;
+    }
+    
+    body:not(.dark) .gradio-container .tab-nav {
+        background: #ffffff !important;
+        border-color: #cbd5e1 !important;
+    }
+    
+    body:not(.dark) .gradio-container .tab-nav button {
+        color: #334155 !important;
+        background: transparent !important;
+    }
+    
+    body:not(.dark) .gradio-container .tab-nav button.selected {
+        background: #f8fafc !important;
+        color: #2563eb !important;
+        border-bottom-color: #2563eb !important;
+    }
+    
+    body:not(.dark) .gradio-container table {
+        background: #ffffff !important;
+        color: #0f172a !important;
+    }
+    
+    body:not(.dark) .gradio-container th {
+        background: #f1f5f9 !important;
+        color: #0f172a !important;
+    }
+    
+    body:not(.dark) .gradio-container td {
+        color: #0f172a !important;
+        border-color: #e2e8f0 !important;
+    }
+    
+    body:not(.dark) .gradio-container pre,
+    body:not(.dark) .gradio-container code {
+        background: #f1f5f9 !important;
+        color: #1e293b !important;
+    }
+    
+    body:not(.dark) .gradio-container .prose,
+    body:not(.dark) .gradio-container .prose *,
+    body:not(.dark) .gradio-container .markdown-body,
+    body:not(.dark) .gradio-container .markdown-body *,
+    body:not(.dark) .gradio-container p {
+        color: #0f172a !important;
+    }
+    
+    body:not(.dark) .gradio-container h1,
+    body:not(.dark) .gradio-container h2,
+    body:not(.dark) .gradio-container h3,
+    body:not(.dark) .gradio-container h4 {
+        color: #0f172a !important;
+    }
+    
+    body:not(.dark) .gradio-container .info-text,
+    body:not(.dark) .gradio-container span.info,
+    body:not(.dark) .gradio-container .wrap .info,
+    body:not(.dark) .gradio-container .description {
+        color: #475569 !important;
+    }
+
+    /* Theme toggle button */
+    #theme-toggle-btn {
+        position: fixed !important;
+        bottom: 20px !important;
+        right: 20px !important;
+        width: 44px !important;
+        height: 44px !important;
+        border-radius: 50% !important;
+        font-size: 20px !important;
+        cursor: pointer !important;
+        z-index: 9999 !important;
+        border: 1px solid var(--border-color) !important;
+        background: var(--bg-secondary) !important;
+        box-shadow: var(--shadow-md) !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        transition: all 0.2s ease !important;
+        padding: 0 !important;
+        line-height: 1 !important;
+    }
+    
+    #theme-toggle-btn:hover {
+        transform: scale(1.1) !important;
     }
     
     /* Main container - full width */
@@ -643,31 +789,67 @@ def create_app(
     }
     """
     
-    # Create theme if available - force dark mode
+    # Create theme if available
     theme = SoftTheme(primary_hue="blue", secondary_hue="slate") if _has_themes else None
     
-    # JavaScript to force dark mode on load - redirect if needed
-    dark_mode_js = """
+    # JavaScript for theme management — respects OS preference, allows user toggle
+    theme_js = """
     () => {
-        // Redirect to dark theme URL if not already there
-        if (!window.location.search.includes('__theme=dark')) {
+        // Determine initial theme: saved preference > OS preference > default dark
+        const saved = localStorage.getItem('lp_theme');
+        const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        const useDark = saved ? (saved === 'dark') : prefersDark;
+        
+        // Apply theme via Gradio's URL param if needed for initial load
+        const urlTheme = new URLSearchParams(window.location.search).get('__theme');
+        const targetTheme = useDark ? 'dark' : 'light';
+        
+        if (urlTheme !== targetTheme) {
             const url = new URL(window.location);
-            url.searchParams.set('__theme', 'dark');
+            url.searchParams.set('__theme', targetTheme);
             window.location.replace(url.toString());
             return;
         }
         
-        // Force dark mode immediately
-        document.body.classList.add('dark');
-        document.documentElement.classList.add('dark');
+        // Apply body class
+        if (useDark) {
+            document.body.classList.add('dark');
+            document.documentElement.classList.add('dark');
+        } else {
+            document.body.classList.remove('dark');
+            document.documentElement.classList.remove('dark');
+        }
         
-        // Set localStorage so Gradio remembers
-        localStorage.setItem('__gradio_theme', 'dark');
+        // Inject theme toggle button
+        if (!document.getElementById('theme-toggle-btn')) {
+            const btn = document.createElement('button');
+            btn.id = 'theme-toggle-btn';
+            btn.innerHTML = useDark ? '☀️' : '🌙';
+            btn.title = useDark ? 'Switch to light mode' : 'Switch to dark mode';
+            btn.addEventListener('click', () => {
+                const isDark = document.body.classList.contains('dark');
+                const newTheme = isDark ? 'light' : 'dark';
+                localStorage.setItem('lp_theme', newTheme);
+                const url = new URL(window.location);
+                url.searchParams.set('__theme', newTheme);
+                window.location.replace(url.toString());
+            });
+            document.body.appendChild(btn);
+        }
+        
+        // Listen for OS theme changes (only if user hasn't set a preference)
+        window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
+            if (!localStorage.getItem('lp_theme')) {
+                const url = new URL(window.location);
+                url.searchParams.set('__theme', e.matches ? 'dark' : 'light');
+                window.location.replace(url.toString());
+            }
+        });
     }
     """
     
     # Gradio 6.0+ requires theme/css in launch(), older versions use Blocks()
-    blocks_kwargs = {"title": "Local Pigeon", "js": dark_mode_js}
+    blocks_kwargs = {"title": "Local Pigeon", "js": theme_js}
     if not _gradio_6_plus:
         blocks_kwargs["theme"] = theme
         blocks_kwargs["css"] = gemini_css
@@ -720,14 +902,16 @@ def create_app(
                 )
                 
                 with gr.Row(elem_classes="chat-input-row"):
-                    msg_input = gr.Textbox(
-                        label="Message",
-                        placeholder="Type your message... (Ctrl+Enter to send)",
+                    msg_input = gr.MultimodalTextbox(
+                        placeholder="Type a message or attach images...",
+                        file_types=["image"],
+                        file_count="multiple",
                         lines=2,
                         scale=4,
                         show_label=False,
+                        submit_btn=True,
+                        stop_btn=False,
                     )
-                    send_btn = gr.Button("Send", variant="primary", scale=1)
                 
                 # Voice input below text box
                 with gr.Accordion("🎤 Voice Input", open=False):
@@ -855,7 +1039,8 @@ def create_app(
                         """
                         ### Select AI Model
                         
-                        Choose from all available models. Click Refresh to see installed models.
+                        Choose from installed models or browse & install new ones.
+                        [🦙 Browse all Ollama models →](https://ollama.com/library)
                         """
                     )
                     with gr.Row():
@@ -879,6 +1064,88 @@ def create_app(
                             info="Used when you send images. Leave as auto-detect to use first available.",
                         )
                         save_vision_model_btn = gr.Button("💾 Save", scale=1)
+                    
+                    # --- Model Discovery & Install (integrated) ---
+                    gr.Markdown("---")
+                    
+                    with gr.Tabs():
+                        with gr.Tab("📦 Installed"):
+                            models_list = gr.Dataframe(
+                                headers=["Model", "Size", "Vision", "Status"],
+                                datatype=["str", "str", "str", "str"],
+                                label="Installed Models",
+                                interactive=False,
+                                row_count=5,
+                            )
+                            refresh_models_list_btn = gr.Button("🔄 Refresh List")
+                        
+                        with gr.Tab("📚 Browse & Install"):
+                            gr.Markdown(
+                                """
+                                Browse models by category, or enter any model name from the
+                                [Ollama model library](https://ollama.com/library) to install it.
+                                """
+                            )
+                            
+                            catalog_category_filter = gr.Dropdown(
+                                label="Filter by Category",
+                                choices=[
+                                    "All Models",
+                                    "⭐ Recommended",
+                                    "🧠 Thinking/Reasoning",
+                                    "🖼️ Vision",
+                                    "💻 Coding",
+                                    "💬 General",
+                                    "🔧 Tool Calling",
+                                    "⚡ Small/Fast",
+                                ],
+                                value="⭐ Recommended",
+                            )
+                            
+                            catalog_list = gr.Dataframe(
+                                headers=["Model", "Ollama Name", "Size", "Type", "Description"],
+                                datatype=["str", "str", "str", "str", "str"],
+                                label="Model Catalog",
+                                interactive=False,
+                                row_count=10,
+                            )
+                            
+                            gr.Markdown("**Install a model** — click a row above or type a name:")
+                            
+                            with gr.Row():
+                                install_backend = gr.Radio(
+                                    label="Backend",
+                                    choices=["Ollama", "GGUF"],
+                                    value="Ollama",
+                                    scale=1,
+                                )
+                                pull_model_input = gr.Textbox(
+                                    label="Model Name",
+                                    placeholder="e.g., deepseek-r1:7b, qwen3:8b, llava",
+                                    scale=3,
+                                )
+                                pull_model_btn = gr.Button("📥 Install", variant="primary", scale=1)
+                            
+                            pull_model_status = gr.Textbox(
+                                label="Install Progress",
+                                lines=4,
+                                interactive=False,
+                            )
+                        
+                        with gr.Tab("🚀 Starter Pack"):
+                            from local_pigeon.core.model_catalog import format_starter_pack_for_display, get_starter_pack_recommendations
+                            starter_pack_content = gr.Markdown(format_starter_pack_for_display())
+                            
+                            gr.Markdown("---")
+                            gr.Markdown("**Quick Install — download all recommended models:**")
+                            with gr.Row():
+                                install_tools_btn = gr.Button("🔧 Install Tool Models", variant="primary")
+                                install_vision_btn = gr.Button("🖼️ Install Vision Models")
+                                install_thinking_btn = gr.Button("🧠 Install Thinking Models")
+                            starter_install_status = gr.Textbox(label="Install Progress", lines=4, interactive=False)
+                    
+                    with gr.Row():
+                        check_ollama_btn = gr.Button("🔍 Check Ollama Status")
                 
                 with gr.Accordion("👤 Personalization", open=False):
                     gr.Markdown(
@@ -925,95 +1192,6 @@ def create_app(
                                 label="Max Tokens",
                                 value=settings.ollama.max_tokens,
                             )
-                
-                with gr.Accordion("🔍 Model Discovery", open=False):
-                    gr.Markdown(
-                        """
-                        ### Discover & Install Models
-                        
-                        Local Pigeon supports various model types:
-                        - **🧠 Thinking/Reasoning**: Chain-of-thought models (DeepSeek R1, Qwen3, Kimi K2)
-                        - **🖼️ Vision Models**: Can analyze images (llava, moondream, llama3.2-vision)
-                        - **💻 Coding Models**: Optimized for code (Qwen Coder, CodeLlama, DeepSeek Coder)
-                        - **� Tool Calling**: Native function calling (Llama 3.1, Llama 3.2, Mistral)
-                        - **�💬 General Chat**: Well-rounded models (Gemma, Llama, Mistral)
-                        - **⚡ Small/Fast**: Lightweight models for quick responses
-                        """
-                    )
-                    
-                    with gr.Tabs():
-                        with gr.Tab("� Starter Pack"):
-                            from local_pigeon.core.model_catalog import format_starter_pack_for_display, get_starter_pack_recommendations
-                            starter_pack_content = gr.Markdown(format_starter_pack_for_display())
-                            
-                            gr.Markdown("---")
-                            gr.Markdown("**Quick Install - Download all recommended models:**")
-                            with gr.Row():
-                                install_tools_btn = gr.Button("🔧 Install Tool Models", variant="primary")
-                                install_vision_btn = gr.Button("🖼️ Install Vision Models")
-                                install_thinking_btn = gr.Button("🧠 Install Thinking Models")
-                            starter_install_status = gr.Textbox(label="Install Status", lines=3, interactive=False)
-                        
-                        with gr.Tab("�📦 Installed"):
-                            models_list = gr.Dataframe(
-                                headers=["Model", "Size", "Vision", "Status"],
-                                datatype=["str", "str", "str", "str"],
-                                label="Installed Models",
-                                interactive=False,
-                                row_count=5,
-                            )
-                            refresh_models_list_btn = gr.Button("🔄 Refresh")
-                        
-                        with gr.Tab("📚 Model Catalog"):
-                            gr.Markdown("**Browse available models by category. Click a model name to install.**")
-                            
-                            catalog_category_filter = gr.Dropdown(
-                                label="Filter by Category",
-                                choices=[
-                                    "All Models",
-                                    "⭐ Recommended",
-                                    "🧠 Thinking/Reasoning",
-                                    "🖼️ Vision",
-                                    "💻 Coding",
-                                    "💬 General",
-                                    "🔧 Tool Calling",
-                                    "⚡ Small/Fast",
-                                ],
-                                value="⭐ Recommended",
-                            )
-                            
-                            catalog_list = gr.Dataframe(
-                                headers=["Model", "Ollama Name", "Size", "Type", "Description"],
-                                datatype=["str", "str", "str", "str", "str"],
-                                label="Model Catalog",
-                                interactive=False,
-                                row_count=10,
-                            )
-                            
-                            gr.Markdown("---")
-                            gr.Markdown("**Install a model:**")
-                            
-                            with gr.Row():
-                                install_backend = gr.Radio(
-                                    label="Backend",
-                                    choices=["Ollama", "GGUF"],
-                                    value="Ollama",
-                                    scale=1,
-                                )
-                                pull_model_input = gr.Textbox(
-                                    label="Model Name",
-                                    placeholder="e.g., deepseek-r1:7b, qwen3:8b, llava",
-                                    scale=3,
-                                )
-                                pull_model_btn = gr.Button("📥 Install", variant="primary", scale=1)
-                            
-                            with gr.Row():
-                                pull_model_status = gr.Textbox(
-                                    label="Status",
-                                    lines=2,
-                                    interactive=False,
-                                )
-                                check_ollama_btn = gr.Button("🔍 Check Ollama")
                 
                 with gr.Accordion("� Agent Behavior (Ralph Loop)", open=False):
                     gr.Markdown(
@@ -1922,17 +2100,50 @@ def create_app(
         
         # Event handlers - split into add_message (instant) and generate (streaming)
         def add_user_message(
-            message: str,
+            message: dict | str,
             history: list[dict],
-        ) -> tuple[str, list[dict]]:
-            """Instantly add user message to chat - no waiting."""
-            if not message.strip():
+        ) -> tuple[dict | None, list[dict]]:
+            """Instantly add user message to chat - no waiting.
+            
+            message can be:
+              - A string (plain text, e.g. from voice input)
+              - A dict with 'text' and 'files' keys (from MultimodalTextbox)
+            """
+            # Handle MultimodalTextbox dict format
+            if isinstance(message, dict):
+                text = (message.get("text") or "").strip()
+                files = message.get("files") or []
+            else:
+                text = (message or "").strip()
+                files = []
+            
+            if not text and not files:
                 return message, history
-            # Add user message immediately, assistant placeholder
+            
+            # Build content parts for the chat message
+            # Gradio 6 Chatbot supports mixed content in a list
+            content_parts = []
+            
+            # Add image files as gr.Image components for display
+            for f in files:
+                file_path = f if isinstance(f, str) else (f.get("path") if isinstance(f, dict) else getattr(f, "path", str(f)))
+                if file_path:
+                    content_parts.append(gr.Image(file_path))
+            
+            # Add text part
+            if text:
+                content_parts.append(text)
+            
+            # If only text (no files), use simple string content
+            if not files and text:
+                content = text
+            else:
+                content = content_parts if content_parts else text
+            
             history = history + [
-                {"role": "user", "content": message},
+                {"role": "user", "content": content},
             ]
-            return "", history  # Clear input immediately
+            return None, history  # Clear input immediately
         
         async def generate_response(
             history: list[dict],
@@ -1942,17 +2153,51 @@ def create_app(
                 yield history
                 return
             
-            # Extract user message - handle both string and multi-part content
+            # Extract user message and images from the last user message
             user_content = history[-1]["content"]
+            user_message = ""
+            image_paths = []
+            
             if isinstance(user_content, list):
-                # Multi-part content (text + files) - extract text parts
-                user_message = " ".join(
-                    part.get("text", "") if isinstance(part, dict) else str(part)
-                    for part in user_content
-                    if isinstance(part, dict) and "text" in part
-                ) or str(user_content)
+                # Multi-part content (text + gr.Image components)
+                for part in user_content:
+                    if isinstance(part, str):
+                        user_message += part
+                    elif hasattr(part, 'value') and hasattr(part, '__class__'):
+                        # gr.Image or gr.File component - extract path
+                        val = part.value
+                        if isinstance(val, dict):
+                            path = val.get('path') or val.get('url', '')
+                        elif hasattr(val, 'path'):
+                            path = val.path
+                        elif isinstance(val, str):
+                            path = val
+                        else:
+                            path = str(val) if val else ''
+                        if path:
+                            image_paths.append(path)
+                    elif isinstance(part, dict):
+                        if "text" in part:
+                            user_message += part["text"]
+                        elif "path" in part:
+                            image_paths.append(part["path"])
             else:
                 user_message = str(user_content)
+            
+            if not user_message.strip() and not image_paths:
+                user_message = "What do you see in this image?"
+            
+            # Convert image files to base64 for the agent
+            images_b64 = []
+            if image_paths:
+                import base64
+                for img_path in image_paths:
+                    try:
+                        with open(img_path, "rb") as f:
+                            img_data = base64.b64encode(f.read()).decode("utf-8")
+                            images_b64.append(img_data)
+                    except Exception as img_err:
+                        pass  # Skip unreadable images
             
             try:
                 from local_pigeon.core.agent import StatusEvent, StatusType
@@ -2000,6 +2245,7 @@ def create_app(
                     platform="web",
                     stream_callback=stream_callback,
                     status_callback=status_callback,
+                    images=images_b64 or None,
                 )
                 
                 # Build final content with status log if tools were actually used
@@ -2173,10 +2419,11 @@ def create_app(
                     ),
                 )
         
-        async def change_model(model: str) -> None:
+        async def change_model(model: str):
             """Change the active model and persist to settings. Auto-downloads if needed."""
             try:
                 import httpx
+                import json as _json
                 
                 # Check if model is installed
                 async with httpx.AsyncClient() as client:
@@ -2188,22 +2435,37 @@ def create_app(
                     installed = {m["name"] for m in data.get("models", [])}
                 
                 if model not in installed:
-                    # Model not installed - try to pull it
-                    gr.Info(f"Downloading {model}... This may take a few minutes.")
+                    # Model not installed - try to pull it with progress
+                    gr.Info(f"Downloading {model}... Check the Status field for progress.")
                     try:
-                        async with httpx.AsyncClient(timeout=600.0) as client:
+                        async with httpx.AsyncClient(timeout=httpx.Timeout(1800.0)) as client:
                             async with client.stream(
                                 "POST",
                                 f"{settings.ollama.host}/api/pull",
-                                json={"name": model},
+                                json={"name": model, "stream": True},
                             ) as resp:
-                                # Stream the download progress
                                 async for line in resp.aiter_lines():
-                                    pass  # Just consume the stream
+                                    if not line.strip():
+                                        continue
+                                    try:
+                                        prog = _json.loads(line)
+                                        if "error" in prog:
+                                            gr.Warning(f"Failed: {prog['error']}")
+                                            return (
+                                                f"❌ {prog['error']}",
+                                                gr.update(value=settings.ollama.model),
+                                                gr.update(value=settings.ollama.model),
+                                            )
+                                    except (ValueError, KeyError):
+                                        continue
                         gr.Info(f"Downloaded {model} successfully!")
                     except Exception as e:
                         gr.Warning(f"Failed to download {model}: {e}")
-                        return
+                        return (
+                            f"❌ Failed to download {model}: {e}",
+                            gr.update(value=settings.ollama.model),
+                            gr.update(value=settings.ollama.model),
+                        )
                 
                 current_agent = await get_agent()
                 current_agent.set_model(model)
@@ -2214,8 +2476,18 @@ def create_app(
                 # Persist to .env so it's remembered on restart
                 _save_env_var("OLLAMA_MODEL", model)
                 gr.Info(f"Switched to {model}")
+                return (
+                    f"✅ Active model: {model}",
+                    gr.update(value=model),
+                    gr.update(value=model),
+                )
             except Exception as e:
                 gr.Warning(f"Error: {e}")
+                return (
+                    f"❌ Error: {e}",
+                    gr.update(value=settings.ollama.model),
+                    gr.update(value=settings.ollama.model),
+                )
         
         async def list_installed_models() -> list:
             """List installed models with their capabilities."""
@@ -2251,10 +2523,11 @@ def create_app(
             except Exception as e:
                 return [[f"Error: {e}", "", "", ""]]
         
-        async def pull_model(model_name: str, backend: str) -> str:
-            """Pull/download a model from Ollama or HuggingFace."""
+        async def pull_model(model_name: str, backend: str):
+            """Pull/download a model from Ollama or HuggingFace with live progress."""
             if not model_name.strip():
-                return "⚠️ Please enter a model name"
+                yield "⚠️ Please enter a model name"
+                return
             
             model_name = model_name.strip()
             is_ollama = "Ollama" in backend
@@ -2262,32 +2535,85 @@ def create_app(
             if is_ollama:
                 try:
                     import httpx
+                    import json as _json
                     
                     # Check if Ollama is running
+                    yield f"🔍 Checking Ollama connection..."
                     async with httpx.AsyncClient(timeout=httpx.Timeout(5.0)) as client:
                         try:
                             check = await client.get(f"{settings.ollama.host}/api/tags")
                             if check.status_code != 200:
-                                return "❌ Ollama is not running. Start it with: `ollama serve`"
+                                yield "❌ Ollama is not running. Start it with: `ollama serve`"
+                                return
                         except Exception:
-                            return "❌ Cannot connect to Ollama. Make sure it's running with: `ollama serve`"
+                            yield "❌ Cannot connect to Ollama. Make sure it's running with: `ollama serve`"
+                            return
                     
-                    # Start pulling the model
-                    async with httpx.AsyncClient(timeout=httpx.Timeout(600.0)) as client:
-                        resp = await client.post(
+                    yield f"📥 Starting download of {model_name}...\nThis may take several minutes for large models."
+                    
+                    # Stream the pull with progress updates
+                    async with httpx.AsyncClient(timeout=httpx.Timeout(1800.0)) as client:
+                        async with client.stream(
+                            "POST",
                             f"{settings.ollama.host}/api/pull",
-                            json={"name": model_name, "stream": False},
-                        )
-                        
-                        if resp.status_code == 200:
-                            return f"✅ Successfully pulled {model_name}!\n\nRefresh the model list to see it, then select it from the dropdown."
-                        else:
-                            return f"❌ Failed to pull model: {resp.text}"
+                            json={"name": model_name, "stream": True},
+                        ) as resp:
+                            if resp.status_code != 200:
+                                yield f"❌ Failed to start download (HTTP {resp.status_code})"
+                                return
+                            
+                            last_status = ""
+                            async for line in resp.aiter_lines():
+                                if not line.strip():
+                                    continue
+                                try:
+                                    data = _json.loads(line)
+                                    status = data.get("status", "")
+                                    
+                                    # Build progress display
+                                    if "total" in data and "completed" in data:
+                                        total = data["total"]
+                                        completed = data["completed"]
+                                        if total > 0:
+                                            pct = completed / total * 100
+                                            # Format sizes
+                                            def _fmt_size(b):
+                                                if b >= 1_073_741_824:
+                                                    return f"{b / 1_073_741_824:.1f} GB"
+                                                elif b >= 1_048_576:
+                                                    return f"{b / 1_048_576:.0f} MB"
+                                                else:
+                                                    return f"{b / 1024:.0f} KB"
+                                            
+                                            bar_len = 20
+                                            filled = int(bar_len * pct / 100)
+                                            bar = "█" * filled + "░" * (bar_len - filled)
+                                            
+                                            progress_line = f"📥 {model_name}\n{status}\n[{bar}] {pct:.1f}%  ({_fmt_size(completed)} / {_fmt_size(total)})"
+                                            if progress_line != last_status:
+                                                last_status = progress_line
+                                                yield progress_line
+                                    elif status:
+                                        status_line = f"📥 {model_name}\n⏳ {status}..."
+                                        if status_line != last_status:
+                                            last_status = status_line
+                                            yield status_line
+                                    
+                                    # Check for error
+                                    if "error" in data:
+                                        yield f"❌ Error: {data['error']}"
+                                        return
+                                        
+                                except (ValueError, KeyError):
+                                    continue
+                    
+                    yield f"✅ Successfully installed {model_name}!\n\nSelect it from the Active Model dropdown above."
                             
                 except Exception as e:
-                    return f"❌ Error pulling model: {str(e)}"
+                    yield f"❌ Error pulling model: {str(e)}"
             else:
                 # GGUF download via llama-cpp-python
+                yield f"📥 Downloading GGUF model: {model_name}..."
                 try:
                     from local_pigeon.core.llama_cpp_client import download_model, AVAILABLE_MODELS
                     from local_pigeon.core.model_catalog import find_model
@@ -2301,19 +2627,19 @@ def create_app(
                     if model_name.lower().replace("-", "_").replace(" ", "_") in AVAILABLE_MODELS:
                         key = model_name.lower().replace("-", "_").replace(" ", "_")
                         path = download_model(key)
-                        return f"✅ Downloaded GGUF model to:\n{path}\n\nThe model is ready to use with llama-cpp-python backend."
+                        yield f"✅ Downloaded GGUF model to:\n{path}\n\nThe model is ready to use with llama-cpp-python backend."
                     elif "/" in model_name:
                         # Assume HuggingFace format: repo/filename.gguf
                         path = download_model(model_name)
-                        return f"✅ Downloaded GGUF model to:\n{path}"
+                        yield f"✅ Downloaded GGUF model to:\n{path}"
                     else:
                         available = ", ".join(AVAILABLE_MODELS.keys())
-                        return f"❌ Unknown GGUF model: {model_name}\n\nAvailable: {available}\n\nOr use HuggingFace format: owner/repo/filename.gguf"
+                        yield f"❌ Unknown GGUF model: {model_name}\n\nAvailable: {available}\n\nOr use HuggingFace format: owner/repo/filename.gguf"
                         
                 except ImportError:
-                    return "❌ GGUF support requires:\n`pip install llama-cpp-python huggingface_hub`"
+                    yield "❌ GGUF support requires:\n`pip install llama-cpp-python huggingface_hub`"
                 except Exception as e:
-                    return f"❌ Error downloading GGUF: {str(e)}"
+                    yield f"❌ Error downloading GGUF: {str(e)}"
         
         async def check_ollama_status() -> str:
             """Check if Ollama is running and get status."""
@@ -2573,10 +2899,13 @@ def create_app(
                 return f"❌ Error saving settings: {str(e)}"
         
         # Voice transcription handler
-        async def transcribe_audio(audio_path: str) -> str:
-            """Transcribe audio using speech recognition."""
+        async def transcribe_audio(audio_path: str) -> dict | None:
+            """Transcribe audio using speech recognition.
+            
+            Returns a MultimodalTextbox-compatible dict with text + empty files.
+            """
             if not audio_path:
-                return ""
+                return None
             
             try:
                 # Try speech recognition with SpeechRecognition library
@@ -2589,14 +2918,14 @@ def create_app(
                     
                     # Use Google's free speech recognition
                     text = recognizer.recognize_google(audio)
-                    return text
+                    return {"text": text, "files": []}
                 except ImportError:
-                    return "[Voice input requires: pip install SpeechRecognition]"
+                    return {"text": "[Voice input requires: pip install SpeechRecognition]", "files": []}
                 except Exception as e:
-                    return f"[Transcription error: {e}]"
+                    return {"text": f"[Transcription error: {e}]", "files": []}
             
             except Exception as e:
-                return f"[Error: {str(e)}]"
+                return {"text": f"[Error: {str(e)}]", "files": []}
         
         # Activity log handlers
         async def load_activity(platform_filter: str) -> tuple[list, str, str]:
@@ -3090,17 +3419,7 @@ def create_app(
             
             return "🔄 Restarting Local Pigeon... The page will refresh automatically."
         
-        # Wire up events - two-step for instant message display
-        send_btn.click(
-            fn=add_user_message,
-            inputs=[msg_input, chatbot],
-            outputs=[msg_input, chatbot],
-        ).then(
-            fn=generate_response,
-            inputs=[chatbot],
-            outputs=[chatbot],
-        )
-        
+        # Wire up events - MultimodalTextbox has built-in submit button
         msg_input.submit(
             fn=add_user_message,
             inputs=[msg_input, chatbot],
@@ -3130,12 +3449,14 @@ def create_app(
         model_dropdown.change(
             fn=change_model,
             inputs=[model_dropdown],
+            outputs=[model_status, model_dropdown, chat_model_dropdown],
         )
         
         # Chat tab model selector events - sync with main dropdown
         chat_model_dropdown.change(
             fn=change_model,
             inputs=[chat_model_dropdown],
+            outputs=[model_status, model_dropdown, chat_model_dropdown],
         )
         
         async def refresh_chat_models():
@@ -3198,49 +3519,95 @@ def create_app(
         )
         
         # Starter pack install handlers
-        async def install_starter_models(category: str) -> str:
-            """Install recommended models for a category."""
+        async def install_starter_models(category: str):
+            """Install recommended models for a category with streaming progress."""
             from local_pigeon.core.model_catalog import get_starter_pack_recommendations
             import httpx
+            import json as _json
             
             recs = get_starter_pack_recommendations()
             models = recs.get(category, [])
             
             if not models:
-                return f"No {category} models found in recommendations."
+                yield f"No {category} models found in recommendations."
+                return
             
-            status_lines = [f"Installing {len(models)} {category} models..."]
+            ollama_models = [m for m in models if m.ollama_name]
+            total = len(ollama_models)
             installed = 0
             
-            for model in models:
-                if not model.ollama_name:
-                    continue
-                try:
-                    status_lines.append(f"⏳ Pulling {model.ollama_name}...")
-                    async with httpx.AsyncClient(timeout=600.0) as client:
-                        response = await client.post(
-                            f"{settings.ollama.host}/api/pull",
-                            json={"name": model.ollama_name, "stream": False},
-                        )
-                        if response.status_code == 200:
-                            status_lines.append(f"✅ {model.ollama_name} installed")
-                            installed += 1
-                        else:
-                            status_lines.append(f"❌ {model.ollama_name}: {response.text[:100]}")
-                except Exception as e:
-                    status_lines.append(f"❌ {model.ollama_name}: {str(e)[:50]}")
+            yield f"📦 Installing {total} {category} model(s)..."
             
-            status_lines.append(f"\nDone! Installed {installed}/{len(models)} models.")
-            return "\n".join(status_lines[-6:])  # Last 6 lines
+            for i, model in enumerate(ollama_models):
+                model_name = model.ollama_name
+                yield f"📥 [{i+1}/{total}] Downloading {model_name}...\n⏳ Starting download..."
+                
+                try:
+                    async with httpx.AsyncClient(timeout=httpx.Timeout(1800.0)) as client:
+                        async with client.stream(
+                            "POST",
+                            f"{settings.ollama.host}/api/pull",
+                            json={"name": model_name, "stream": True},
+                        ) as resp:
+                            if resp.status_code != 200:
+                                yield f"❌ [{i+1}/{total}] Failed to download {model_name} (HTTP {resp.status_code})\n\nContinuing with next model..."
+                                continue
+                            
+                            last_status = ""
+                            async for line in resp.aiter_lines():
+                                if not line.strip():
+                                    continue
+                                try:
+                                    data = _json.loads(line)
+                                    status = data.get("status", "")
+                                    
+                                    if "total" in data and "completed" in data:
+                                        total_bytes = data["total"]
+                                        completed_bytes = data["completed"]
+                                        if total_bytes > 0:
+                                            pct = completed_bytes / total_bytes * 100
+                                            def _fmt(b):
+                                                if b >= 1_073_741_824: return f"{b/1_073_741_824:.1f} GB"
+                                                elif b >= 1_048_576: return f"{b/1_048_576:.0f} MB"
+                                                else: return f"{b/1024:.0f} KB"
+                                            bar_len = 20
+                                            filled = int(bar_len * pct / 100)
+                                            bar = "█" * filled + "░" * (bar_len - filled)
+                                            progress_line = f"📥 [{i+1}/{total}] {model_name}\n{status}\n[{bar}] {pct:.1f}%  ({_fmt(completed_bytes)} / {_fmt(total_bytes)})"
+                                            if progress_line != last_status:
+                                                last_status = progress_line
+                                                yield progress_line
+                                    elif status:
+                                        status_line = f"📥 [{i+1}/{total}] {model_name}\n⏳ {status}..."
+                                        if status_line != last_status:
+                                            last_status = status_line
+                                            yield status_line
+                                    
+                                    if "error" in data:
+                                        yield f"❌ [{i+1}/{total}] {model_name}: {data['error']}"
+                                        break
+                                except (ValueError, KeyError):
+                                    continue
+                    
+                    installed += 1
+                    yield f"✅ [{i+1}/{total}] {model_name} installed!\n\n{'⏳ Next model...' if i+1 < total else ''}"
+                    
+                except Exception as e:
+                    yield f"❌ [{i+1}/{total}] {model_name}: {str(e)[:80]}\n\nContinuing..."
+            
+            yield f"✅ Done! Installed {installed}/{total} {category} model(s).\n\nRefresh the model list to see them."
         
         async def install_tool_calling_models():
-            return await install_starter_models("tool_calling")
+            async for msg in install_starter_models("tool_calling"):
+                yield msg
         
         async def install_vision_models():
-            return await install_starter_models("vision")
+            async for msg in install_starter_models("vision"):
+                yield msg
         
         async def install_thinking_models():
-            return await install_starter_models("thinking")
+            async for msg in install_starter_models("thinking"):
+                yield msg
         
         install_tools_btn.click(
             fn=install_tool_calling_models,
