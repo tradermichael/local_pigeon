@@ -44,11 +44,17 @@ flowchart TB
         WebUI[Web UI]
     end
 
-    subgraph Core["Agent Core"]
+  subgraph Core["Agent Core"]
         Agent[Local Pigeon Agent]
         Conversation[Conversation Manager]
         ToolRegistry[Tool Registry]
     end
+
+  subgraph DI["Dependency Injection Layer"]
+    ToolProvider[ToolProvider]
+    MemoryProvider[MemoryProvider]
+    NetworkProvider[NetworkProvider]
+  end
 
     subgraph LLM["Language Model"]
         Ollama[Ollama]
@@ -68,15 +74,27 @@ flowchart TB
         MCPServers["External MCP Servers<br/>(GitHub, Filesystem, DB, etc.)"]
     end
 
+    subgraph Mesh["Optional Mesh"]
+      WireGuard[WireGuard Identity]
+      BotfConfig[~/.botf/config.yaml]
+    end
+
     subgraph Storage["Storage Layer"]
         SQLite[(SQLite DB)]
         Credentials[Encrypted Credentials]
     end
 
     Platforms --> Agent
+    Agent --> ToolProvider
+    Agent --> MemoryProvider
+    Agent --> NetworkProvider
     Agent <--> Conversation
     Agent <--> ToolRegistry
     Agent <--> LLM
+    ToolProvider --> ToolRegistry
+    MemoryProvider --> SQLite
+    NetworkProvider -. optional .-> WireGuard
+    WireGuard --> BotfConfig
     ToolRegistry --> Tools
     ToolRegistry --> MCPManager
     MCPManager <--> MCPServers
@@ -84,9 +102,11 @@ flowchart TB
 
     style Platforms fill:#e1f5fe
     style Core fill:#fff3e0
+    style DI fill:#fff8e1
     style LLM fill:#f3e5f5
     style Tools fill:#e8f5e9
     style MCP fill:#fce4ec
+    style Mesh fill:#ede7f6
     style Storage fill:#f5f5f5
 ```
 
