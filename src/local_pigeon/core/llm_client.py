@@ -312,6 +312,10 @@ class OllamaClient:
         "llama3.2-vision", "minicpm-v",
         "cogvlm", "yi-vl", "nanollava",
         "gemma3",  # gemma3 models include vision support
+        "ministral",  # Ministral 3 family
+        "ministral3",  # alternative naming
+        "mistral-small3",  # Mistral Small 3.x family
+        "mistral-small3.1",  # explicit 3.1 tag
     }
     
     def __init__(
