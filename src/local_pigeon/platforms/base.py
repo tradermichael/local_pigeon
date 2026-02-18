@@ -64,3 +64,7 @@ class BasePlatformAdapter(ABC):
             platform=self.platform_name,
             handler=self.request_approval,
         )
+        self.agent.register_message_handler(
+            platform=self.platform_name,
+            handler=self.send_message,
+        )

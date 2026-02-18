@@ -900,6 +900,8 @@ def create_app(
                     avatar_images=(None, None),
                     editable=None,
                 )
+
+                schedule_poller = gr.Timer(value=5.0)
                 
                 with gr.Row(elem_classes="chat-input-row"):
                     msg_input = gr.MultimodalTextbox(
@@ -2345,6 +2347,33 @@ def create_app(
             except Exception:
                 pass
             return []
+
+        async def poll_web_scheduled_notifications(history: list[dict] | None) -> list[dict]:
+            """Poll and surface queued scheduler notifications in the chat UI."""
+            try:
+                current_agent = await get_agent()
+                pending = await current_agent.scheduler.store.get_pending_notifications(
+                    platform="web",
+                    user_id="web_user",
+                    limit=20,
+                )
+
+                if not pending:
+                    return history or []
+
+                updated_history = list(history or [])
+                for notification in pending:
+                    updated_history.append(
+                        {
+                            "role": "assistant",
+                            "content": notification["message"],
+                        }
+                    )
+                    await current_agent.scheduler.store.mark_notification_delivered(notification["id"])
+
+                return updated_history
+            except Exception:
+                return history or []
         
         async def refresh_models() -> tuple[gr.Dropdown, gr.Dropdown]:
             """Refresh available models - shows catalog models plus installed."""
@@ -3453,6 +3482,12 @@ def create_app(
             outputs=[msg_input, chatbot],
         ).then(
             fn=generate_response,
+            inputs=[chatbot],
+            outputs=[chatbot],
+        )
+
+        schedule_poller.tick(
+            fn=poll_web_scheduled_notifications,
             inputs=[chatbot],
             outputs=[chatbot],
         )

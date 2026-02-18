@@ -265,9 +265,13 @@ class LocalPigeonAgent:
         
         # Approval callbacks (set by platforms)
         self._approval_handlers: dict[str, Callable[[PendingApproval], Awaitable[bool]]] = {}
+        self._message_handlers: dict[str, Callable[..., Awaitable[None]]] = {}
         
         # Initialization flag
         self._initialized = False
+
+        # Scheduler completion callback for proactive notifications
+        self.scheduler.add_callback(self._handle_scheduled_task_completion)
 
     def on(self, event_name: str, callback: Callable[[dict[str, Any]], Any]) -> None:
         """Register an event callback.
@@ -415,6 +419,21 @@ class LocalPigeonAgent:
         and return True if approved, False if denied.
         """
         self._approval_handlers[platform] = handler
+
+    def register_message_handler(
+        self,
+        platform: str,
+        handler: Callable[..., Awaitable[None]],
+    ) -> None:
+        """Register a proactive message sender for a platform."""
+        self._message_handlers[platform] = handler
+
+        # Best-effort flush of pending notifications queued while offline
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(self._flush_pending_notifications(platform))
+        except RuntimeError:
+            pass
     
     def get_system_prompt(
         self,
@@ -1324,6 +1343,65 @@ Timezone: {datetime.now().astimezone().tzinfo}
             )
         except asyncio.TimeoutError:
             return False
+
+    async def _handle_scheduled_task_completion(self, task: Any, result: str) -> None:
+        """Send or queue scheduler results so users receive proactive updates."""
+        run_time = datetime.now().strftime("%Y-%m-%d %H:%M")
+        message = (
+            f"⏰ Scheduled task completed\n\n"
+            f"Name: {task.name}\n"
+            f"Run time: {run_time}\n"
+            f"Result:\n{result}"
+        )
+        await self._send_or_queue_scheduled_notification(
+            user_id=task.user_id,
+            platform=task.platform,
+            message=message,
+            task_id=task.id,
+        )
+
+    async def _send_or_queue_scheduled_notification(
+        self,
+        *,
+        user_id: str,
+        platform: str,
+        message: str,
+        task_id: str | None,
+    ) -> None:
+        """Try real-time send; fallback to durable queue."""
+        handler = self._message_handlers.get(platform)
+        if handler:
+            try:
+                await handler(user_id, message)
+                return
+            except Exception:
+                logger.debug("Scheduled notification send failed; queueing", exc_info=True)
+
+        await self.scheduler.store.add_notification(
+            task_id=task_id,
+            user_id=user_id,
+            platform=platform,
+            message=message,
+        )
+
+    async def _flush_pending_notifications(self, platform: str) -> None:
+        """Flush queued notifications for a platform once a sender is available."""
+        handler = self._message_handlers.get(platform)
+        if not handler:
+            return
+
+        pending = await self.scheduler.store.get_pending_notifications(platform=platform, limit=200)
+        for notification in pending:
+            try:
+                await handler(notification["user_id"], notification["message"])
+                await self.scheduler.store.mark_notification_delivered(notification["id"])
+            except Exception:
+                logger.debug(
+                    "Failed delivering pending notification %s on %s",
+                    notification["id"],
+                    platform,
+                    exc_info=True,
+                )
     
     async def approve_pending(self, approval_id: str) -> bool:
         """Approve a pending action by ID."""

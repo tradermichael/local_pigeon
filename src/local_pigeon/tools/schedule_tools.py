@@ -86,6 +86,14 @@ class CreateScheduleTool(Tool):
                 schedule_data=schedule_data,
                 platform=platform,
             )
+
+            # Verify persistence before confirming success
+            persisted = await self.scheduler.store.get_task(scheduled_task.id)
+            if not persisted:
+                return (
+                    "❌ Failed to persist schedule. Please try again.\n\n"
+                    "Tip: use formats like 'in 10 minutes', 'every 2 hours', or 'daily at 9:00'."
+                )
             
             # Format confirmation
             next_run = scheduled_task.next_run.strftime("%Y-%m-%d %H:%M")
@@ -113,10 +121,12 @@ class CreateScheduleTool(Tool):
                 f"**Name:** {name}\n"
                 f"**Schedule:** {schedule_desc}\n"
                 f"**Next run:** {next_run}\n"
-                f"**Task ID:** `{scheduled_task.id[:8]}...`\n\n"
+                f"**Task ID:** `{scheduled_task.id}`\n\n"
                 f"I'll automatically: {task}"
             )
             
+        except ValueError as e:
+            return f"❌ Invalid schedule format: {str(e)}"
         except Exception as e:
             return f"❌ Failed to create schedule: {str(e)}"
 
@@ -180,7 +190,7 @@ class ListSchedulesTool(Tool):
                 
                 lines.append(f"{status} **{task.name}** ({schedule_desc})")
                 lines.append(f"   Next: {next_run} | Runs: {task.run_count}")
-                lines.append(f"   ID: `{task.id[:8]}`")
+                lines.append(f"   ID: `{task.id}`")
                 lines.append("")
             
             return "\n".join(lines)
