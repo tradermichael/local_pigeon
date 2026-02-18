@@ -60,6 +60,14 @@ DEFINITE_GROUNDING_PATTERNS = [
     # Historical facts with specific dates/numbers
     (r"\b(when did|what year|what date)\b", "historical date"),
     (r"\b(invented|discovered|founded|created|started) (in|by)\b", "historical fact"),
+    
+    # Recommendations / local search (restaurants, places, businesses)
+    (r"\b(best|top|good|great|popular|recommended|highest rated)\b.*\b(restaurant|cafe|bar|pub|shop|store|place|hotel|gym|salon|clinic|dentist|doctor|mechanic)", "recommendation lookup"),
+    (r"\b(restaurant|cafe|bar|pub|shop|store|place|hotel|gym|salon|clinic)s?\b.*\b(near|in|around|close to|nearby)\b", "local search"),
+    (r"\b(where (can i|should i|to) (eat|drink|get|buy|find))\b", "local recommendation"),
+    (r"\b(yelp|tripadvisor|google reviews|opentable|zomato)\b", "review site lookup"),
+    (r"\b(recommend|suggestion|recommend me|suggest)\b.*\b(restaurant|food|place|eat|drink|coffee|lunch|dinner|breakfast|brunch)\b", "recommendation request"),
+    (r"\b(food|eat|dining|lunch|dinner|breakfast|brunch|coffee)\b.*\b(near|nearby|around|close|in town)\b", "local food search"),
 ]
 
 # Patterns that PROBABLY need grounding (medium confidence)

@@ -21,8 +21,11 @@ class WebSearchTool(Tool):
     
     name: str = "web_search"
     description: str = """Search the web for information.
-Use this tool when you need to find current information, news, or facts.
-Returns search results with titles, URLs, and snippets."""
+Use this tool when you need to find current information, news, facts, or recommendations.
+Returns search results with titles, URLs, and snippets.
+IMPORTANT: Search snippets are brief. For recommendations (restaurants, businesses, places),
+use web_fetch on the top result URLs to get actual names, ratings, addresses, and details
+BEFORE presenting them to the user. Never invent names or details not in the results."""
     parameters: dict[str, Any] = field(default_factory=lambda: {
         "type": "object",
         "properties": {
@@ -95,16 +98,26 @@ Returns search results with titles, URLs, and snippets."""
         if not results:
             return f"No results found for: {query}"
         
-        # Format results
-        formatted = f"Search results for: {query}\n\n"
+        # Format results with clear provenance markers
+        formatted = f"Search results for: {query}\n"
+        formatted += f"Source: DuckDuckGo (live search, {len(results)} results)\n"
+        formatted += "─" * 60 + "\n\n"
         for i, result in enumerate(results, 1):
             title = result.get("title", "No title")
             url = result.get("href", result.get("link", ""))
             snippet = result.get("body", result.get("snippet", ""))
             
-            formatted += f"{i}. {title}\n"
-            formatted += f"   URL: {url}\n"
-            formatted += f"   {snippet}\n\n"
+            formatted += f"[Result {i}]\n"
+            formatted += f"  Title: {title}\n"
+            formatted += f"  URL: {url}\n"
+            formatted += f"  Snippet: {snippet}\n\n"
+        
+        formatted += "─" * 60 + "\n"
+        formatted += ("⚠️ IMPORTANT: Only cite names, addresses, ratings, and facts that "
+                      "appear VERBATIM above. If specific details (e.g. restaurant names, "
+                      "phone numbers, ratings) are not in these results, say you don't have "
+                      "that detail rather than guessing. Use web_fetch on a result URL to "
+                      "get full details.")
         
         return formatted.strip()
     
@@ -137,15 +150,24 @@ Returns search results with titles, URLs, and snippets."""
         if not results:
             return f"No results found for: {query}"
         
-        # Format results
-        formatted = f"Search results for: {query}\n\n"
+        # Format results with clear provenance markers
+        formatted = f"Search results for: {query}\n"
+        formatted += f"Source: SearXNG (live search, {len(results)} results)\n"
+        formatted += "─" * 60 + "\n\n"
         for i, result in enumerate(results, 1):
             title = result.get("title", "No title")
             url = result.get("url", "")
             snippet = result.get("content", "")
             
-            formatted += f"{i}. {title}\n"
-            formatted += f"   URL: {url}\n"
-            formatted += f"   {snippet}\n\n"
+            formatted += f"[Result {i}]\n"
+            formatted += f"  Title: {title}\n"
+            formatted += f"  URL: {url}\n"
+            formatted += f"  Snippet: {snippet}\n\n"
+        
+        formatted += "─" * 60 + "\n"
+        formatted += ("⚠️ IMPORTANT: Only cite names, addresses, ratings, and facts that "
+                      "appear VERBATIM above. If specific details are not in these results, "
+                      "say you don't have that detail rather than guessing. Use web_fetch "
+                      "on a result URL to get full details.")
         
         return formatted.strip()

@@ -91,6 +91,8 @@ def create_app(
         # Store for launch() in Gradio 6.0+
         app._lp_theme = theme
         app._lp_css = gemini_css
+        # Combine both JS snippets so Gradio 6.0+ can run them via launch(js=...)
+        app._lp_js = theme_js + "\n" + ctrl_enter_js
         # State
         conversation_state = gr.State([])
         settings_open = gr.State(False)  # Track settings accordion state
@@ -3619,12 +3621,14 @@ def launch_ui(
         "show_error": True,
     }
     
-    # Gradio 6.0+ expects theme/css in launch()
+    # Gradio 6.0+ expects theme/css/js in launch()
     if _gradio_6_plus:
         if hasattr(app, '_lp_theme'):
             launch_kwargs["theme"] = app._lp_theme
         if hasattr(app, '_lp_css'):
             launch_kwargs["css"] = app._lp_css
+        if hasattr(app, '_lp_js'):
+            launch_kwargs["js"] = app._lp_js
     
     app.launch(**launch_kwargs)
 

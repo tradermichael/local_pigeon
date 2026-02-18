@@ -65,7 +65,7 @@ TOOL_CAPABILITIES = {
     ),
     "web_search": ToolCapability(
         name="web_search",
-        description="Search the web for facts, current info, news, science, math, history, or anything you're not 100% certain about. Always use this for factual grounding.",
+        description="Search the web for facts, current info, news, recommendations, restaurants, places, or anything you're not 100% certain about. Always use this for factual grounding. For recommendations (restaurants, shops, etc.), follow up with web_fetch on the top result URL to get actual names, ratings, and addresses — do NOT invent details that aren't in the search snippets.",
         trigger_phrases=[
             "search for",
             "look up",
@@ -79,8 +79,14 @@ TOOL_CAPABILITIES = {
             "fact check",
             "how many",
             "what is the",
+            "best restaurants",
+            "good places to eat",
+            "recommend a",
+            "yelp",
+            "near me",
+            "nearby",
         ],
-        example_call={"name": "web_search", "arguments": {"query": "speed of light meters per second"}},
+        example_call={"name": "web_search", "arguments": {"query": "best sushi restaurants in San Francisco"}},
     ),
     "web_fetch": ToolCapability(
         name="web_fetch",
