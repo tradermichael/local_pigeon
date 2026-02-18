@@ -10,8 +10,10 @@ The main agent orchestration layer that:
 """
 
 import asyncio
+import inspect
 import logging
 import uuid
+from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
@@ -28,6 +30,8 @@ from local_pigeon.storage.failure_log import AsyncFailureLog
 from local_pigeon.storage.user_settings import UserSettingsStore
 from local_pigeon.storage.database import Database
 from local_pigeon.tools.registry import ToolRegistry, Tool
+from local_pigeon.core.interfaces import MemoryProvider, NetworkProvider, LocalDiskMemoryProvider, ToolProvider
+from local_pigeon.core.default_tool_provider import DefaultToolProvider
 
 logger = logging.getLogger(__name__)
 
@@ -174,6 +178,10 @@ class LocalPigeonAgent:
         self,
         settings: Settings | None = None,
         backend: LLMBackend = LLMBackend.AUTO,
+        memory_provider: MemoryProvider | None = None,
+        network_provider: NetworkProvider | None = None,
+        tool_registry: ToolRegistry | None = None,
+        tool_provider: ToolProvider | None = None,
     ):
         self.settings = settings or get_settings()
         self.backend = backend
@@ -191,6 +199,11 @@ class LocalPigeonAgent:
             db_path = db_filename
         else:
             db_path = str(data_dir / db_filename)
+
+        # Dependency-injection providers
+        self.memory_provider = memory_provider or LocalDiskMemoryProvider(db_path=db_path)
+        self.network_provider = network_provider
+        self.tool_provider = tool_provider or DefaultToolProvider()
         
         # Initialize conversation manager
         self.conversations = AsyncConversationManager(
@@ -198,8 +211,12 @@ class LocalPigeonAgent:
             max_history=self.settings.agent.max_history_messages,
         )
         
-        # Initialize memory manager
-        self.memory = AsyncMemoryManager(db_path=db_path)
+        # Initialize memory manager (from provider when possible)
+        native_memory = self.memory_provider.get_native_manager()
+        if isinstance(native_memory, AsyncMemoryManager):
+            self.memory = native_memory
+        else:
+            self.memory = AsyncMemoryManager(db_path=db_path)
         
         # Initialize failure log for Ralph Loop pattern
         self.failure_log = AsyncFailureLog(db_path=db_path)
@@ -233,8 +250,12 @@ class LocalPigeonAgent:
         )
         
         # Initialize tool registry
-        self.tools = ToolRegistry()
+        self.tools = tool_registry or ToolRegistry()
         self._register_default_tools()
+
+        # Event hooks for extension points (free/enterprise wrappers)
+        self._event_hooks: dict[str, list[Callable[[dict[str, Any]], Any]]] = defaultdict(list)
+        self.on("memory_saved", lambda payload: logger.debug("memory_saved event: %s", payload))
         
         # Initialize MCP manager (connected in initialize() if enabled)
         self.mcp_manager: Any = None
@@ -247,6 +268,30 @@ class LocalPigeonAgent:
         
         # Initialization flag
         self._initialized = False
+
+    def on(self, event_name: str, callback: Callable[[dict[str, Any]], Any]) -> None:
+        """Register an event callback.
+
+        Example:
+            agent.on("memory_saved", callback)
+        """
+        self._event_hooks[event_name].append(callback)
+
+    def off(self, event_name: str, callback: Callable[[dict[str, Any]], Any]) -> None:
+        """Unregister a previously registered event callback."""
+        callbacks = self._event_hooks.get(event_name, [])
+        if callback in callbacks:
+            callbacks.remove(callback)
+
+    async def trigger(self, event_name: str, payload: dict[str, Any]) -> None:
+        """Trigger event callbacks for a given event name."""
+        for callback in list(self._event_hooks.get(event_name, [])):
+            try:
+                result = callback(payload)
+                if inspect.iscoroutine(result):
+                    await result
+            except Exception as exc:
+                logger.debug("Event hook '%s' failed: %s", event_name, exc)
     
     async def initialize(self) -> None:
         """
@@ -291,102 +336,8 @@ class LocalPigeonAgent:
     
     def _register_default_tools(self) -> None:
         """Register the default set of tools."""
-        # Web search tools
-        if self.settings.web.search.enabled:
-            from local_pigeon.tools.web.search import WebSearchTool
-            self.tools.register(WebSearchTool(settings=self.settings.web.search))
-        
-        if self.settings.web.fetch.enabled:
-            from local_pigeon.tools.web.fetch import WebFetchTool
-            self.tools.register(WebFetchTool(settings=self.settings.web.fetch))
-        
-        # Browser automation (Playwright)
-        if self.settings.web.browser.enabled:
-            from local_pigeon.tools.web.browser import BrowserTool, BrowserSearchTool
-            self.tools.register(BrowserTool(settings=self.settings.web.browser))
-            self.tools.register(BrowserSearchTool(settings=self.settings.web.browser))
-        
-        # Google Workspace tools
-        if self.settings.google.gmail_enabled:
-            from local_pigeon.tools.google.gmail import GmailTool
-            self.tools.register(GmailTool(settings=self.settings.google))
-        
-        if self.settings.google.calendar_enabled:
-            from local_pigeon.tools.google.calendar import CalendarTool
-            self.tools.register(CalendarTool(settings=self.settings.google))
-        
-        if self.settings.google.drive_enabled:
-            from local_pigeon.tools.google.drive import DriveTool
-            self.tools.register(DriveTool(settings=self.settings.google))
-        
-        # Payment tools
-        if self.settings.payments.stripe.enabled:
-            from local_pigeon.tools.payments.stripe_card import StripeCardTool
-            self.tools.register(StripeCardTool(
-                stripe_settings=self.settings.payments.stripe,
-                approval_settings=self.settings.payments.approval,
-            ))
-        
-        if self.settings.payments.crypto.enabled:
-            from local_pigeon.tools.payments.crypto_wallet import CryptoWalletTool
-            self.tools.register(CryptoWalletTool(
-                crypto_settings=self.settings.payments.crypto,
-                approval_settings=self.settings.payments.approval,
-            ))
-        
-        # Self-healing tools (Ralph Loop pattern) - always enabled
-        from local_pigeon.tools.self_healing import (
-            ViewFailureLogTool,
-            MarkFailureResolvedTool,
-            AnalyzeFailurePatternsTool,
-        )
-        self.tools.register(ViewFailureLogTool(failure_log=self.failure_log))
-        self.tools.register(MarkFailureResolvedTool(failure_log=self.failure_log))
-        self.tools.register(AnalyzeFailurePatternsTool(failure_log=self.failure_log))
-        
-        # Skills tools (RALPH loop self-improvement) - always enabled
-        from local_pigeon.tools.skills_tools import (
-            CreateSkillTool,
-            ViewSkillsTool,
-            LearnSkillTool,
-            UpdateSkillTool,
-            DocumentLimitationTool,
-        )
-        self.tools.register(CreateSkillTool(
-            skills_manager=self.skills,
-            auto_approve=self.settings.agent.auto_approve_skills,
-        ))
-        self.tools.register(ViewSkillsTool(skills_manager=self.skills))
-        self.tools.register(LearnSkillTool(skills_manager=self.skills))
-        self.tools.register(UpdateSkillTool(skills_manager=self.skills))
-        self.tools.register(DocumentLimitationTool(
-            skills_manager=self.skills,
-            auto_approve=self.settings.agent.auto_approve_skills,
-        ))
-        
-        # Memory tools - always enabled
-        from local_pigeon.tools.memory_tools import (
-            RememberTool,
-            RecallTool,
-            ListMemoriesTool,
-            ForgetTool,
-        )
-        self.tools.register(RememberTool(memory_manager=self.memory))
-        self.tools.register(RecallTool(memory_manager=self.memory))
-        self.tools.register(ListMemoriesTool(memory_manager=self.memory))
-        self.tools.register(ForgetTool(memory_manager=self.memory))
-        
-        # Schedule tools - always enabled
-        from local_pigeon.tools.schedule_tools import (
-            CreateScheduleTool,
-            ListSchedulesTool,
-            CancelScheduleTool,
-            PauseScheduleTool,
-        )
-        self.tools.register(CreateScheduleTool(scheduler=self.scheduler))
-        self.tools.register(ListSchedulesTool(scheduler=self.scheduler))
-        self.tools.register(CancelScheduleTool(scheduler=self.scheduler))
-        self.tools.register(PauseScheduleTool(scheduler=self.scheduler))
+        for tool in self.tool_provider.get_tools(self):
+            self.tools.register(tool)
     
     def reload_tools(self) -> list[str]:
         """
@@ -408,53 +359,10 @@ class LocalPigeonAgent:
     
     async def _connect_mcp_servers(self) -> None:
         """Connect to configured MCP servers and register their tools."""
-        if not self.settings.mcp.enabled:
-            return
-        
-        if not self.settings.mcp.servers:
-            return
-        
-        from local_pigeon.tools.mcp import MCPManager, create_mcp_tools
-        
-        self.mcp_manager = MCPManager(
-            connection_timeout=self.settings.mcp.connection_timeout
-        )
-        
-        for server_config in self.settings.mcp.servers:
-            if not server_config.name:
-                continue
-            try:
-                if server_config.transport == "stdio":
-                    await self.mcp_manager.connect_stdio_server(
-                        name=server_config.name,
-                        command=server_config.command,
-                        args=server_config.args,
-                        env=server_config.env or None,
-                    )
-                elif server_config.transport == "sse":
-                    await self.mcp_manager.connect_sse_server(
-                        name=server_config.name,
-                        url=server_config.url,
-                    )
-                else:
-                    logger.warning(
-                        f"Unknown MCP transport '{server_config.transport}' "
-                        f"for server '{server_config.name}'"
-                    )
-            except Exception as e:
-                logger.error(
-                    f"Failed to connect to MCP server '{server_config.name}': {e}"
-                )
-        
-        # Register all discovered MCP tools
-        mcp_tools = create_mcp_tools(
-            manager=self.mcp_manager,
-            require_approval=not self.settings.mcp.auto_approve,
-        )
-        
+        self.mcp_manager, mcp_tools = await self.tool_provider.get_mcp_tools(self)
         for tool in mcp_tools:
             self.tools.register(tool)
-        
+
         if mcp_tools:
             logger.info(f"Registered {len(mcp_tools)} MCP tools")
     
@@ -492,27 +400,8 @@ class LocalPigeonAgent:
         Called by the Discord adapter when the bot connects.
         This allows the agent to perform actions on Discord.
         """
-        if not self.settings.discord.enabled:
-            return
-        
-        from local_pigeon.tools.discord import (
-            DiscordSendMessageTool,
-            DiscordSendDMTool,
-            DiscordGetMessagesTool,
-            DiscordAddReactionTool,
-            DiscordListChannelsTool,
-            DiscordCreateThreadTool,
-            DiscordGetServerInfoTool,
-        )
-        
-        # Register Discord tools with bot reference
-        self.tools.register(DiscordSendMessageTool(bot=bot))
-        self.tools.register(DiscordSendDMTool(bot=bot))
-        self.tools.register(DiscordGetMessagesTool(bot=bot))
-        self.tools.register(DiscordAddReactionTool(bot=bot))
-        self.tools.register(DiscordListChannelsTool(bot=bot))
-        self.tools.register(DiscordCreateThreadTool(bot=bot))
-        self.tools.register(DiscordGetServerInfoTool(bot=bot))
+        for tool in self.tool_provider.get_discord_tools(self, bot):
+            self.tools.register(tool)
     
     def register_approval_handler(
         self,
@@ -606,7 +495,7 @@ Timezone: {datetime.now().astimezone().tzinfo}
         base_prompt = self.get_system_prompt(bot_name=bot_name, user_name=user_name)
         
         # Add user memories
-        memory_context = await self.memory.format_memories_for_prompt(user_id)
+        memory_context = await self.memory_provider.format_context_for_prompt(user_id)
         if memory_context:
             base_prompt += memory_context
         
@@ -1357,6 +1246,29 @@ Timezone: {datetime.now().astimezone().tzinfo}
                 user_id=user_id,
                 **tool_call.arguments,
             )
+
+            await self.trigger(
+                "tool_executed",
+                {
+                    "tool": tool_call.name,
+                    "arguments": tool_call.arguments,
+                    "result": str(result),
+                    "user_id": user_id,
+                    "platform": platform,
+                },
+            )
+
+            if tool_call.name == "remember":
+                await self.trigger(
+                    "memory_saved",
+                    {
+                        "tool": tool_call.name,
+                        "arguments": tool_call.arguments,
+                        "result": str(result),
+                        "user_id": user_id,
+                        "platform": platform,
+                    },
+                )
             
             return ToolResult(
                 tool_call_id=tool_call.id,
@@ -1373,6 +1285,17 @@ Timezone: {datetime.now().astimezone().tzinfo}
                 arguments=tool_call.arguments,
                 user_id=user_id,
                 platform=platform,
+            )
+
+            await self.trigger(
+                "tool_error",
+                {
+                    "tool": tool_call.name,
+                    "arguments": tool_call.arguments,
+                    "error": str(e),
+                    "user_id": user_id,
+                    "platform": platform,
+                },
             )
             
             return ToolResult(
@@ -1420,6 +1343,13 @@ Timezone: {datetime.now().astimezone().tzinfo}
         """Change the active model."""
         self.llm.model = model
         self.settings.ollama.model = model
+
+        # Best-effort sync event for wrappers observing model changes
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(self.trigger("model_changed", {"model": model}))
+        except RuntimeError:
+            pass
     
     async def clear_history(self, user_id: str, session_id: str | None = None) -> None:
         """Clear conversation history for a user."""

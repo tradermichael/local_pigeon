@@ -45,6 +45,9 @@ playwright>=1.40
 # MCP (Model Context Protocol)
 mcp>=1.0.0
 
+# Mesh Networking (system dependency)
+# Requires WireGuard tools installed on host OS (`wg`, `wg-quick`).
+
 # =============================================================================
 # OPTIONAL DEPENDENCIES
 # Install with: pip install local-pigeon[all]

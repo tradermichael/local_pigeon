@@ -30,7 +30,7 @@ from local_pigeon import __version__
 from local_pigeon.config import get_settings, get_data_dir, ensure_data_dir
 from local_pigeon.logging import setup_logging, get_recent_logs, list_log_files
 
-app = typer.Typer(name="local-pigeon", help="Local AI Agent", add_completion=False)
+app = typer.Typer(name="botf", help="BOTF AI local agent", add_completion=False)
 console = Console()
 
 # Ensure data directory exists on import
@@ -60,7 +60,7 @@ LOGO = """
 
 LOGO_SMALL = """
 [bold bright_cyan]╭──────────────────────────────────────────────╮[/]
-[bold bright_cyan]│[/]  [bold yellow]�️[/] [bold bright_white]LOCAL PIGEON[/]  [dim]Your Local AI Assistant[/]  [bold bright_cyan]│[/]
+[bold bright_cyan]│[/]  [bold yellow]⚡[/] [bold bright_white]BOTF AI[/]  [dim]Enterprise-Ready Local Agent[/]  [bold bright_cyan]│[/]
 [bold bright_cyan]╰──────────────────────────────────────────────╯[/]
 """
 
@@ -105,7 +105,7 @@ GOOGLE_HELP = """
 def print_banner(small=False):
     console.clear()
     console.print(LOGO_SMALL if small else LOGO)
-    console.print(Align.center(f"[dim]v{__version__} • Powered by Ollama • 100% Local[/dim]"))
+    console.print(Align.center(f"[dim]BOTF AI v{__version__} • Powered by Ollama • 100% Local[/dim]"))
     console.print()
 
 
@@ -287,7 +287,13 @@ def logs(
 
 
 @app.command()
-def run(host: str = None, port: int = None, no_ui: bool = False, debug: bool = typer.Option(False, "--debug", "-d", help="Enable debug logging")):
+def run(
+    host: str = None,
+    port: int = None,
+    no_ui: bool = False,
+    debug: bool = typer.Option(False, "--debug", "-d", help="Enable debug logging"),
+    enable_mesh: bool = typer.Option(False, "--enable-mesh", help="Enable mesh networking (WireGuard stub)"),
+):
     """Start the Local Pigeon agent."""
     print_banner(small=True)
     
@@ -304,6 +310,16 @@ def run(host: str = None, port: int = None, no_ui: bool = False, debug: bool = t
     settings = get_settings()
     if host: settings.ui.host = host
     if port: settings.ui.port = port
+    if enable_mesh:
+        settings.mesh.enabled = True
+        try:
+            from local_pigeon.core.networking.wireguard import ensure_wireguard_identity
+
+            mesh_info = ensure_wireguard_identity(enable_mesh=True)
+            settings.mesh.public_key = mesh_info.get("public_key", "")
+            console.print(f"[green]✓[/] Mesh enabled [dim]({mesh_info.get('config_path')})[/]")
+        except Exception as exc:
+            console.print(f"[yellow]⚠ Mesh bootstrap failed:[/] {exc}")
     
     console.print("[dim]Looking for Ollama...[/]")
     ollama_path = find_ollama()
@@ -376,7 +392,7 @@ def run(host: str = None, port: int = None, no_ui: bool = False, debug: bool = t
             launch_ui(settings=settings)
         else:
             console.print()
-            console.print(Panel("[bold green]🕊️ Local Pigeon is running![/]\n\nPress [bold]Ctrl+C[/] to stop.", border_style="green", box=ROUNDED))
+            console.print(Panel("[bold green]⚡ BOTF AI is running![/]\n\nPress [bold]Ctrl+C[/] to stop.", border_style="green", box=ROUNDED))
             try:
                 await asyncio.gather(*tasks, return_exceptions=False)
             except Exception as e:
@@ -628,7 +644,7 @@ def eval(
 @app.command()
 def version():
     """Show version information."""
-    console.print(Panel(f"[bold bright_white]Local Pigeon[/] [cyan]v{__version__}[/]\n\n[dim]A fully local AI agent powered by Ollama[/]", border_style="bright_cyan", box=ROUNDED))
+    console.print(Panel(f"[bold bright_white]BOTF AI[/] [cyan]v{__version__}[/]\n\n[dim]A fully local AI agent powered by Ollama[/]", border_style="bright_cyan", box=ROUNDED))
 
 
 def main():

@@ -120,6 +120,38 @@ install_ollama() {
     echo -e "${GREEN}✓${NC} Ollama installed"
 }
 
+# Install WireGuard tools (for optional mesh mode)
+install_wireguard_tools() {
+    echo -e "${YELLOW}Installing WireGuard tools (optional mesh dependency)...${NC}"
+
+    case $OS in
+        macos)
+            if command_exists brew; then
+                brew install wireguard-tools || true
+            fi
+            ;;
+        debian)
+            sudo apt-get update
+            sudo apt-get install -y wireguard-tools || true
+            ;;
+        redhat)
+            sudo dnf install -y wireguard-tools || true
+            ;;
+        arch)
+            sudo pacman -S --noconfirm wireguard-tools || true
+            ;;
+        *)
+            echo -e "${YELLOW}Skipping WireGuard installation on this platform${NC}"
+            ;;
+    esac
+
+    if command_exists wg; then
+        echo -e "${GREEN}✓${NC} WireGuard tools available"
+    else
+        echo -e "${YELLOW}!${NC} WireGuard tools not found. Mesh mode can be enabled later after installing 'wg'."
+    fi
+}
+
 # Pull default model
 pull_model() {
     local model="${1:-llama3.2}"
@@ -159,6 +191,10 @@ main() {
             echo -e "${YELLOW}Skipping Ollama installation. You'll need to install it manually.${NC}"
         fi
     fi
+
+    echo ""
+    echo -e "${BLUE}Step 2b: Installing WireGuard tools...${NC}"
+    install_wireguard_tools
     
     echo ""
     echo -e "${BLUE}Step 3: Creating installation directory...${NC}"
@@ -213,6 +249,7 @@ main() {
     echo ""
     echo -e "${BLUE}Step 8: Creating command alias...${NC}"
     WRAPPER_PATH="$HOME/.local/bin/local-pigeon"
+    BOTF_WRAPPER_PATH="$HOME/.local/bin/botf"
     mkdir -p "$HOME/.local/bin"
     cat > "$WRAPPER_PATH" << 'WRAPPER'
 #!/bin/bash
@@ -221,7 +258,16 @@ cd "$HOME/.local_pigeon"
 exec local-pigeon "$@"
 WRAPPER
     chmod +x "$WRAPPER_PATH"
-    echo -e "${GREEN}✓${NC} Created command: local-pigeon"
+
+    cat > "$BOTF_WRAPPER_PATH" << 'WRAPPER'
+#!/bin/bash
+source "$HOME/.local_pigeon/venv/bin/activate"
+cd "$HOME/.local_pigeon"
+exec botf "$@"
+WRAPPER
+    chmod +x "$BOTF_WRAPPER_PATH"
+
+    echo -e "${GREEN}✓${NC} Created commands: local-pigeon, botf"
     
     # Pull model if Ollama is installed
     echo ""
@@ -247,12 +293,12 @@ WRAPPER
     echo "   nano $INSTALL_DIR/.env"
     echo ""
     echo "3. Run the setup wizard:"
-    echo "   local-pigeon setup"
+    echo "   botf setup"
     echo ""
     echo "4. Start Local Pigeon:"
-    echo "   local-pigeon run"
+    echo "   botf run"
     echo ""
-    echo "For help: local-pigeon --help"
+    echo "For help: botf --help"
     echo ""
 }
 

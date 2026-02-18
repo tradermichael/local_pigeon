@@ -95,6 +95,7 @@ all = [
 
 [project.scripts]
 local-pigeon = "local_pigeon.cli:main"
+botf = "local_pigeon.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/tradermichael/local_pigeon"

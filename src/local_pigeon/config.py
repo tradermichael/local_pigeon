@@ -450,6 +450,16 @@ class UISettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="WEBUI_")
 
 
+class MeshSettings(BaseSettings):
+    """Optional mesh/federation networking settings."""
+
+    enabled: bool = Field(default=False, description="Enable mesh networking")
+    public_key: str = Field(default="", description="WireGuard public key")
+    private_key: str = Field(default="", description="WireGuard private key")
+
+    model_config = SettingsConfigDict(env_prefix="MESH_")
+
+
 class AgentSettings(BaseSettings):
     """Agent behavior settings."""
     
@@ -568,6 +578,7 @@ class Settings(BaseSettings):
     # Storage and UI
     storage: StorageSettings = Field(default_factory=StorageSettings)
     ui: UISettings = Field(default_factory=UISettings)
+    mesh: MeshSettings = Field(default_factory=MeshSettings)
     
     # Security
     encryption_key: str = Field(default="", description="Encryption key for credentials")
@@ -699,6 +710,14 @@ class Settings(BaseSettings):
         # Ollama model
         if os.environ.get("OLLAMA_MODEL"):
             settings.ollama.model = os.environ.get("OLLAMA_MODEL", "")
+
+        # Mesh
+        if os.environ.get("MESH_ENABLED"):
+            settings.mesh.enabled = os.environ.get("MESH_ENABLED", "").lower() in ("true", "1", "yes")
+        if os.environ.get("MESH_PUBLIC_KEY"):
+            settings.mesh.public_key = os.environ.get("MESH_PUBLIC_KEY", "")
+        if os.environ.get("MESH_PRIVATE_KEY"):
+            settings.mesh.private_key = os.environ.get("MESH_PRIVATE_KEY", "")
         
         return settings
 
