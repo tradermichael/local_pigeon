@@ -422,7 +422,11 @@ class Scheduler:
             self._task.cancel()
             try:
                 await self._task
-            except asyncio.CancelledError:
+            except (asyncio.CancelledError, RuntimeError):
+                # RuntimeError: task attached to a different loop — happens when
+                # Gradio's unload callback runs on a different event loop than
+                # the one the scheduler task was created on.  Safe to ignore;
+                # the cancel() above already signalled the task to stop.
                 pass
             self._task = None
     

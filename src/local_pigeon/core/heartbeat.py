@@ -73,7 +73,7 @@ class Heartbeat:
             self._task.cancel()
             try:
                 await self._task
-            except asyncio.CancelledError:
+            except (asyncio.CancelledError, RuntimeError):
                 pass
             self._task = None
         logger.info("Heartbeat stopped")
