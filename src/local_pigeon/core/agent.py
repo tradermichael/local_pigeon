@@ -1357,7 +1357,7 @@ Timezone: {datetime.now().astimezone().tzinfo}
             return False
 
     async def _handle_scheduled_task_completion(self, task: Any, result: str) -> None:
-        """Send or queue scheduler results so users receive proactive updates."""
+        """Broadcast scheduler results to ALL registered platforms so every interface gets the update."""
         run_time = datetime.now().strftime("%Y-%m-%d %H:%M")
         message = (
             f"⏰ Scheduled task completed\n\n"
@@ -1365,12 +1365,19 @@ Timezone: {datetime.now().astimezone().tzinfo}
             f"Run time: {run_time}\n"
             f"Result:\n{result}"
         )
-        await self._send_or_queue_scheduled_notification(
-            user_id=task.user_id,
-            platform=task.platform,
-            message=message,
-            task_id=task.id,
-        )
+
+        # Collect all platforms to notify: the task's own platform plus all
+        # registered message handlers (Discord, Telegram, Slack, etc.)
+        platforms_to_notify = set(self._message_handlers.keys())
+        platforms_to_notify.add(task.platform)  # always include originating platform
+
+        for platform in platforms_to_notify:
+            await self._send_or_queue_scheduled_notification(
+                user_id=task.user_id,
+                platform=platform,
+                message=message,
+                task_id=task.id,
+            )
 
     async def _send_or_queue_scheduled_notification(
         self,

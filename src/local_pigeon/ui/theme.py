@@ -202,14 +202,26 @@ body:not(.dark) .gradio-container * {
     color: #0f172a;
 }
 
-body:not(.dark) .gradio-container input,
+body:not(.dark) .gradio-container input:not([type="checkbox"]):not([type="radio"]),
 body:not(.dark) .gradio-container select,
 body:not(.dark) .gradio-container textarea,
-body:not(.dark) .gradio-container .wrap input,
+body:not(.dark) .gradio-container .wrap input:not([type="checkbox"]):not([type="radio"]),
 body:not(.dark) .gradio-container .wrap select {
     background-color: #ffffff !important;
     color: #0f172a !important;
     border-color: #cbd5e1 !important;
+}
+
+/* Checkbox & radio — restore native appearance and ensure clickability */
+body:not(.dark) .gradio-container input[type="checkbox"],
+body:not(.dark) .gradio-container input[type="radio"] {
+    appearance: auto !important;
+    -webkit-appearance: auto !important;
+    width: auto !important;
+    height: auto !important;
+    cursor: pointer !important;
+    accent-color: var(--accent-color, #6366f1) !important;
+    pointer-events: auto !important;
 }
 
 body:not(.dark) .gradio-container ul[role="listbox"],

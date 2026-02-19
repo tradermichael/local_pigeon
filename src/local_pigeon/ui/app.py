@@ -2682,8 +2682,37 @@ def create_app(
             try:
                 from google.oauth2.credentials import Credentials
                 from googleapiclient.discovery import build
+                from google.auth.transport.requests import Request
                 
                 creds = Credentials.from_authorized_user_file(str(token_path))
+                
+                # Refresh expired tokens automatically
+                if creds.expired and creds.refresh_token:
+                    try:
+                        creds.refresh(Request())
+                        with open(token_path, "w") as token:
+                            token.write(creds.to_json())
+                    except Exception:
+                        pass  # Will surface as 401 below
+                
+                # Check scopes on the token — warn early if missing
+                REQUIRED_SCOPES = {
+                    "Gmail": {"https://www.googleapis.com/auth/gmail.readonly", "https://www.googleapis.com/auth/gmail.send"},
+                    "Calendar": {"https://www.googleapis.com/auth/calendar"},
+                    "Drive": {"https://www.googleapis.com/auth/drive"},
+                }
+                token_scopes = set(creds.scopes or [])
+                scope_warnings = []
+                for svc, needed in REQUIRED_SCOPES.items():
+                    if not needed & token_scopes:
+                        scope_warnings.append(svc)
+                
+                if scope_warnings:
+                    missing_str = ", ".join(scope_warnings)
+                    results.append(
+                        f"⚠️ **Token missing scopes for: {missing_str}** — "
+                        f"Click **Authorize with Google** to re-authorize with all permissions."
+                    )
                 
                 # Direct links to enable each API
                 API_ENABLE_LINKS = {
@@ -2694,16 +2723,21 @@ def create_app(
                 
                 def _format_google_error(e: Exception, service_name: str) -> str:
                     """Format Google API errors with helpful messages."""
-                    err_str = str(e)
-                    if "403" in err_str:
+                    err_str = str(e).lower()
+                    if "insufficient" in err_str and "scope" in err_str:
+                        return "Missing scopes — click **Authorize with Google** to re-authorize with all permissions"
+                    elif "403" in err_str and ("not enabled" in err_str or "accessnotconfigured" in err_str or "has not been used" in err_str):
                         link = API_ENABLE_LINKS.get(service_name, "https://console.cloud.google.com/apis/library")
-                        return f"API not enabled - [Enable {service_name} API]({link})"
-                    elif "401" in err_str or "invalid_grant" in err_str.lower():
-                        return "Token expired - click 'Authorize with Google' again"
+                        return f"API not enabled — [Enable {service_name} API]({link})"
+                    elif "403" in err_str:
+                        link = API_ENABLE_LINKS.get(service_name, "https://console.cloud.google.com/apis/library")
+                        return f"Access denied (403) — check permissions or [Enable {service_name} API]({link})"
+                    elif "401" in err_str or "invalid_grant" in err_str:
+                        return "Token expired — click 'Authorize with Google' again"
                     elif "404" in err_str:
                         return "Resource not found"
                     else:
-                        return err_str[:60]
+                        return str(e)[:80]
                 
                 # Test Gmail
                 if settings.google.gmail_enabled:
@@ -2754,6 +2788,8 @@ def create_app(
                 # Add helpful tips based on results
                 if has_errors:
                     test_info += "\n\n**Troubleshooting:**\n"
+                    if any("Missing scopes" in r for r in results):
+                        test_info += "- **Missing scopes detected:** Click **Authorize with Google** to re-authorize. This will request all needed permissions (Gmail, Calendar, Drive).\n"
                     if any("API not enabled" in r for r in results):
                         test_info += "- Click the links above to enable each API, or enable all at once:\n"
                         test_info += "  - [Enable Gmail API](https://console.cloud.google.com/apis/library/gmail.googleapis.com)\n"

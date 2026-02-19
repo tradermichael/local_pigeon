@@ -445,8 +445,73 @@ def test_parse_schedule_in_1_minute():
     assert data == {"in_minutes": 1}
 
 
+def test_parse_schedule_bare_minutes():
+    """Bare '10 minutes' (no 'in' prefix) still parses as a once task."""
+    stype, data = parse_schedule("10 minutes")
+    assert stype == ScheduleType.ONCE
+    assert data == {"in_minutes": 10}
+
+
+def test_parse_schedule_after_minutes():
+    """'after 5 minutes' parses as a once task."""
+    stype, data = parse_schedule("after 5 minutes")
+    assert stype == ScheduleType.ONCE
+    assert data == {"in_minutes": 5}
+
+
 def test_parse_schedule_every_30_seconds():
     """'every 30 seconds' produces an interval task."""
     stype, data = parse_schedule("every 30 seconds")
     assert stype == ScheduleType.INTERVAL
     assert data == {"seconds": 30}
+
+
+# ---------------------------------------------------------------------------
+# Broadcast to all platforms
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_notification_broadcast_to_all_platforms(tmp_path):
+    """Task completion broadcasts notifications to ALL registered platforms."""
+    settings = Settings()
+    settings.storage.database = str(tmp_path / "broadcast.db")
+
+    agent = LocalPigeonAgent(settings=settings)
+    await agent.scheduler.store.initialize()
+
+    # Register a Discord handler
+    discord_messages = []
+
+    async def fake_discord_sender(user_id: str, message: str, **kwargs):
+        discord_messages.append((user_id, message))
+
+    agent.register_message_handler("discord", fake_discord_sender)
+    # Let the flush task finish (it tries to send pending discord notifications)
+    await asyncio.sleep(0.1)
+
+    # Now trigger a task completion (task was created on "web")
+    task = ScheduledTask(
+        id="task-bc-1",
+        user_id="web_user",
+        name="Broadcast test",
+        prompt="say hello",
+        schedule_type=ScheduleType.ONCE,
+        schedule_data={"in_minutes": 1},
+        created_at=datetime.now(),
+        next_run=datetime.now(),
+        platform="web",
+    )
+
+    await agent._handle_scheduled_task_completion(task, "Hello broadcast!")
+
+    # Discord should have received it directly (handler registered)
+    assert len(discord_messages) == 1
+    assert "Broadcast test" in discord_messages[0][1]
+
+    # Web should have it queued (no web handler registered)
+    web_pending = await agent.scheduler.store.get_pending_notifications(
+        platform="web", user_id="web_user",
+    )
+    assert len(web_pending) == 1
+    assert "Broadcast test" in web_pending[0]["message"]

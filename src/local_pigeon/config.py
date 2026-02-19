@@ -483,8 +483,13 @@ DO NOT:
 DO:
 - Call gmail tool when user asks about emails
 - Call calendar tool when user asks about events/schedule
+- Call create_schedule when user asks for reminders or periodic tasks (e.g., 'remind me in 5 minutes', 'every hour check news')
 - Call web_search when user needs current information
 - Call drive tool when user asks about their files
+
+REMINDERS vs CALENDAR:
+- 'Remind me in X minutes' or 'every hour do Y' → use create_schedule (triggers the agent to act)
+- 'Add a meeting to my calendar' or 'what's on my calendar' → use calendar
 
 USER-AUTHORIZED SERVICES (gmail, calendar, drive):
 The user has already connected and authorized these accounts via OAuth.
@@ -529,7 +534,8 @@ If the user asks for MULTIPLE things (e.g., "who is the president AND check my e
 - NEVER pretend to check something without calling the actual tool
 - Example: "who is the president and check my email" requires BOTH web_search AND gmail
 - If the user mentions email/inbox: you MUST call gmail tool
-- If the user mentions calendar/schedule: you MUST call calendar tool
+- If the user mentions calendar/events/meetings: you MUST call calendar tool
+- If the user says 'remind me' or 'in X minutes' or 'every hour/day': you MUST call create_schedule tool
 - If the user mentions facts/current events: you MUST call web_search
 - NEVER say "your inbox doesn't contain X" without actually calling gmail first
 - Each tool provides DIFFERENT information - use ALL that are relevant""",

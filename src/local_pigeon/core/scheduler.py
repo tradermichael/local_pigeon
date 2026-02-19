@@ -764,14 +764,21 @@ def parse_schedule(schedule_str: str) -> tuple[ScheduleType, dict[str, Any]]:
             data["days"] = 1
         return ScheduleType.INTERVAL, data
     
-    # Check for "in X minutes/hours"
-    in_match = re.match(r"in\s+(\d+)\s+(minute|minutes|min|hour|hours|hr|hrs)s?", schedule_str)
+    # Check for "in X minutes/hours" or bare "X minutes/hours"
+    # Models may omit the "in" prefix: "10 minutes", "after 5 minutes", etc.
+    in_match = re.match(
+        r"(?:in|after)?\s*(\d+)\s+(minute|minutes|min|mins|hour|hours|hr|hrs|second|seconds|sec|secs)\s*$",
+        schedule_str,
+    )
     if in_match:
         amount = int(in_match.group(1))
         unit = in_match.group(2)
         
-        if unit in {"minute", "minutes", "min"}:
+        if unit in {"minute", "minutes", "min", "mins"}:
             return ScheduleType.ONCE, {"in_minutes": amount}
+        elif unit in {"second", "seconds", "sec", "secs"}:
+            # Convert seconds to minutes (minimum 1)
+            return ScheduleType.ONCE, {"in_minutes": max(1, amount // 60) if amount >= 60 else 1}
         else:
             return ScheduleType.ONCE, {"in_hours": amount}
     

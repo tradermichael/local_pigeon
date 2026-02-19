@@ -33,10 +33,12 @@ class CreateScheduleTool(Tool):
     
     name = "create_schedule"
     description = (
-        "Schedule a task to run at a specific time or interval. "
-        "Use this when the user asks to be reminded, or wants something done "
-        "periodically (e.g., 'remind me every day at 9am', 'check news every hour', "
-        "'in 30 minutes tell me the weather')."
+        "Schedule a reminder or recurring task. This is NOT the calendar tool. "
+        "Use this when the user says 'remind me', 'in X minutes', 'every hour', "
+        "or wants you to DO something at a future time. The task will trigger "
+        "the agent to act and send results to the user across all platforms.\n"
+        "Examples: 'remind me in 1 minute to stretch', 'every 2 hours check my email', "
+        "'in 10 minutes send me a summary of my inbox'."
     )
     parameters = {
         "type": "object",
