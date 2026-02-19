@@ -664,6 +664,17 @@ Timezone: {datetime.now().astimezone().tzinfo}
         # Get conversation history
         history = await self.conversations.get_messages(conversation_id)
         
+        # For vision requests, strip tool-call messages from history.
+        # Vision models don't understand tool_calls/tool roles and will
+        # hallucinate or regurgitate old tool output if they see them.
+        if is_vision_request and history:
+            history = [
+                msg for msg in history
+                if msg.role in ("user", "assistant")
+                and not getattr(msg, "tool_calls", None)
+                and not getattr(msg, "tool_call_id", None)
+            ]
+        
         # Get personalized system prompt with user memories and relevant skills
         system_prompt = await self.get_personalized_system_prompt(user_id, user_message)
         
