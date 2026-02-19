@@ -81,20 +81,36 @@ THEME_JS = """
 
 CTRL_ENTER_JS = """
 () => {
-    setTimeout(() => {
+    function attachCtrlEnter() {
+        // Target: the chat MultimodalTextbox textarea
+        // Gradio 6.x puts the submit button as button.submit-button
+        // or with data-testid="submit-button" inside the same container
         const textareas = document.querySelectorAll('textarea');
         textareas.forEach(textarea => {
-            textarea.removeEventListener('keydown', textarea._ctrlEnterHandler);
+            if (textarea._ctrlEnterHandler) {
+                textarea.removeEventListener('keydown', textarea._ctrlEnterHandler);
+            }
             textarea._ctrlEnterHandler = (e) => {
                 if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
                     e.preventDefault();
-                    const sendBtn = document.querySelector('button.primary');
-                    if (sendBtn) sendBtn.click();
+                    // Try multiple selectors for cross-version compatibility
+                    const sendBtn =
+                        document.querySelector('button.submit-button') ||
+                        document.querySelector('[data-testid="submit-button"]') ||
+                        document.querySelector('button.primary');
+                    if (sendBtn) {
+                        sendBtn.click();
+                    }
                 }
             };
             textarea.addEventListener('keydown', textarea._ctrlEnterHandler);
         });
-    }, 500);
+    }
+    // Initial attach after DOM settles
+    setTimeout(attachCtrlEnter, 800);
+    // Re-attach when Gradio re-renders (tab switches, component updates)
+    new MutationObserver(() => setTimeout(attachCtrlEnter, 300))
+        .observe(document.body, { childList: true, subtree: true });
 }
 """
 

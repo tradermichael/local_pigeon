@@ -249,14 +249,21 @@ class SkillsManager:
         if not examples_md:
             examples_md = "\n**User:** \"example request\"\n**Action:** `{\"name\": \"tool_name\", \"arguments\": {}}`\n"
         
+        def _yq(v: str) -> str:
+            """Quote a YAML value if it contains special characters."""
+            s = str(v)
+            if any(c in s for c in (':', '#', '{', '}', '[', ']', ',', '&', '*', '?', '|', '-', '<', '>', '=', '!', '%', '@', '`', '"', "'")):
+                return json.dumps(s)  # JSON double-quoting is valid YAML
+            return s
+        
         content = f"""---
-id: {skill.id}
-name: {skill.name}
-tool: {skill.tool}
-status: {skill.status}
-source: {skill.source}
-created: {skill.created_at}
-updated: {skill.updated_at}
+id: {_yq(skill.id)}
+name: {_yq(skill.name)}
+tool: {_yq(skill.tool)}
+status: {_yq(skill.status)}
+source: {_yq(skill.source)}
+created: {_yq(skill.created_at)}
+updated: {_yq(skill.updated_at)}
 success_count: {skill.success_count}
 failure_count: {skill.failure_count}
 ---
