@@ -19,47 +19,10 @@ def get_gmail_service(credentials_path: str, token_path: str | None = None):
     
     Uses stored tokens if available, otherwise initiates OAuth flow.
     """
-    import os
-    from google.auth.transport.requests import Request
-    from google.oauth2.credentials import Credentials
-    from google_auth_oauthlib.flow import InstalledAppFlow
     from googleapiclient.discovery import build
-    from local_pigeon.config import get_data_dir
+    from local_pigeon.tools.google.auth import get_google_credentials
     
-    # Use data directory for token storage
-    if token_path is None:
-        data_dir = get_data_dir()
-        token_path = str(data_dir / "google_token.json")
-    
-    SCOPES = [
-        "https://www.googleapis.com/auth/gmail.readonly",
-        "https://www.googleapis.com/auth/gmail.send",
-        "https://www.googleapis.com/auth/gmail.modify",
-    ]
-    
-    creds = None
-    
-    # Load existing token
-    if os.path.exists(token_path):
-        creds = Credentials.from_authorized_user_file(token_path, SCOPES)
-    
-    # Refresh or get new credentials
-    if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-        else:
-            if not os.path.exists(credentials_path):
-                raise FileNotFoundError(
-                    f"OAuth credentials file not found: {credentials_path}\n"
-                    "Download from Google Cloud Console: https://console.cloud.google.com/apis/credentials"
-                )
-            flow = InstalledAppFlow.from_client_secrets_file(credentials_path, SCOPES)
-            creds = flow.run_local_server(port=0)
-        
-        # Save token for future use
-        with open(token_path, "w") as token:
-            token.write(creds.to_json())
-    
+    creds = get_google_credentials(credentials_path, token_path)
     return build("gmail", "v1", credentials=creds)
 
 

@@ -2598,31 +2598,14 @@ def create_app(
             
             try:
                 # Import here to avoid circular imports
-                from google_auth_oauthlib.flow import InstalledAppFlow
+                from local_pigeon.tools.google.auth import get_google_credentials, ALL_SCOPES
                 
-                # Combined scopes for all services (matching what tools use)
-                SCOPES = [
-                    # Gmail
-                    "https://www.googleapis.com/auth/gmail.readonly",
-                    "https://www.googleapis.com/auth/gmail.send",
-                    "https://www.googleapis.com/auth/gmail.modify",
-                    # Calendar
-                    "https://www.googleapis.com/auth/calendar",
-                    "https://www.googleapis.com/auth/calendar.events",
-                    # Drive
-                    "https://www.googleapis.com/auth/drive",
-                    "https://www.googleapis.com/auth/drive.file",
-                ]
+                # Authorize with all combined scopes via the shared helper
+                # (token is saved to disk automatically by get_google_credentials)
+                creds = get_google_credentials(creds_path)
                 
-                # Run OAuth flow - opens browser automatically and handles callback
-                flow = InstalledAppFlow.from_client_secrets_file(creds_path, SCOPES)
-                creds = flow.run_local_server(port=0)
-                
-                # Save token
                 data_dir = get_data_dir()
                 token_path = data_dir / "google_token.json"
-                with open(token_path, "w") as token:
-                    token.write(creds.to_json())
                 
                 success_info = """### ✅ Authorization Complete!
 
