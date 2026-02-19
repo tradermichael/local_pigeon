@@ -150,6 +150,26 @@ class SchedulerStore:
                 CREATE INDEX IF NOT EXISTS idx_scheduled_notifications_pending
                 ON scheduled_notifications(platform, delivered, created_at)
             """)
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS task_execution_log (
+                    id TEXT PRIMARY KEY,
+                    task_id TEXT NOT NULL,
+                    task_name TEXT NOT NULL,
+                    user_id TEXT NOT NULL,
+                    executed_at TEXT NOT NULL,
+                    result TEXT,
+                    success INTEGER DEFAULT 1,
+                    platform TEXT DEFAULT 'web'
+                )
+            """)
+            await db.execute("""
+                CREATE INDEX IF NOT EXISTS idx_task_execution_log_task
+                ON task_execution_log(task_id, executed_at DESC)
+            """)
+            await db.execute("""
+                CREATE INDEX IF NOT EXISTS idx_task_execution_log_user
+                ON task_execution_log(user_id, executed_at DESC)
+            """)
             await db.commit()
         
         self._initialized = True
@@ -373,6 +393,96 @@ class SchedulerStore:
             )
             await db.commit()
 
+    async def log_execution(
+        self,
+        *,
+        task: "ScheduledTask",
+        result: str,
+        success: bool = True,
+    ) -> str:
+        """Log a task execution for history tracking."""
+        await self.initialize()
+
+        execution_id = str(uuid.uuid4())
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute(
+                """
+                INSERT INTO task_execution_log
+                (id, task_id, task_name, user_id, executed_at, result, success, platform)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    execution_id,
+                    task.id,
+                    task.name,
+                    task.user_id,
+                    datetime.now().isoformat(),
+                    result[:2000] if result else "",  # Truncate long results
+                    1 if success else 0,
+                    task.platform,
+                ),
+            )
+            await db.commit()
+        return execution_id
+
+    async def get_execution_history(
+        self,
+        *,
+        user_id: str | None = None,
+        task_id: str | None = None,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        """Get task execution history, optionally filtered by user or task."""
+        await self.initialize()
+
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+
+            if task_id:
+                cursor = await db.execute(
+                    """
+                    SELECT * FROM task_execution_log
+                    WHERE task_id = ?
+                    ORDER BY executed_at DESC
+                    LIMIT ?
+                    """,
+                    (task_id, limit),
+                )
+            elif user_id:
+                cursor = await db.execute(
+                    """
+                    SELECT * FROM task_execution_log
+                    WHERE user_id = ?
+                    ORDER BY executed_at DESC
+                    LIMIT ?
+                    """,
+                    (user_id, limit),
+                )
+            else:
+                cursor = await db.execute(
+                    """
+                    SELECT * FROM task_execution_log
+                    ORDER BY executed_at DESC
+                    LIMIT ?
+                    """,
+                    (limit,),
+                )
+
+            rows = await cursor.fetchall()
+            return [
+                {
+                    "id": row["id"],
+                    "task_id": row["task_id"],
+                    "task_name": row["task_name"],
+                    "user_id": row["user_id"],
+                    "executed_at": row["executed_at"],
+                    "result": row["result"],
+                    "success": bool(row["success"]),
+                    "platform": row["platform"],
+                }
+                for row in rows
+            ]
+
 
 class Scheduler:
     """
@@ -443,6 +553,11 @@ class Scheduler:
                     try:
                         result = await self._execute_task(task)
                         
+                        # Log execution to history
+                        await self.store.log_execution(
+                            task=task, result=result, success=True,
+                        )
+                        
                         # Update task
                         task.last_run = datetime.now()
                         task.run_count += 1
@@ -463,7 +578,10 @@ class Scheduler:
                                 pass
                     
                     except Exception as e:
-                        # Log error but continue with other tasks
+                        # Log error to execution history and continue with other tasks
+                        await self.store.log_execution(
+                            task=task, result=str(e), success=False,
+                        )
                         logger.exception("Scheduler error running task %s: %s", task.id, e)
                 
             except Exception as e:

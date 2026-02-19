@@ -1274,6 +1274,7 @@ Timezone: {datetime.now().astimezone().tzinfo}
             # Execute the tool
             result = await tool.execute(
                 user_id=user_id,
+                platform=platform,
                 **tool_call.arguments,
             )
 

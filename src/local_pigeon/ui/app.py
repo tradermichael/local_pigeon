@@ -270,6 +270,49 @@ def create_app(
                         )
             
             # Settings Tab
+            with gr.Tab("📅 Tasks"):
+                gr.Markdown(
+                    """
+                    ### Scheduled Tasks
+                    
+                    View and manage your scheduled tasks and reminders.
+                    Tasks run automatically on their schedule and results appear in Chat.
+                    """
+                )
+                
+                with gr.Row():
+                    refresh_tasks_btn = gr.Button("🔄 Refresh", scale=0, min_width=80)
+                
+                tasks_table = gr.Dataframe(
+                    headers=["Status", "Name", "Schedule", "Next Run", "Last Run", "Runs", "ID"],
+                    datatype=["str", "str", "str", "str", "str", "str", "str"],
+                    label="Active Tasks",
+                    interactive=False,
+                    row_count=8,
+                )
+                
+                with gr.Row():
+                    task_id_input = gr.Textbox(
+                        label="Task ID (first 8 chars is enough)",
+                        placeholder="e.g. a1b2c3d4",
+                        scale=2,
+                    )
+                    pause_task_btn = gr.Button("⏸️ Pause", scale=0, min_width=80)
+                    resume_task_btn = gr.Button("▶️ Resume", scale=0, min_width=80)
+                    delete_task_btn = gr.Button("🗑️ Delete", variant="stop", scale=0, min_width=80)
+                
+                task_action_status = gr.Textbox(label="Status", interactive=False, visible=True)
+                
+                gr.Markdown("### Execution History")
+                
+                execution_history_table = gr.Dataframe(
+                    headers=["Time", "Task", "Status", "Result"],
+                    datatype=["str", "str", "str", "str"],
+                    label="Recent Executions",
+                    interactive=False,
+                    row_count=10,
+                )
+            
             with gr.Tab("⚙️ Settings"):
                 with gr.Accordion("🤖 Model Selection", open=True):
                     gr.Markdown(
@@ -1609,6 +1652,124 @@ def create_app(
                 return updated_history
             except Exception:
                 return history or []
+
+        async def load_tasks_table():
+            """Load all scheduled tasks for display in the Tasks tab."""
+            try:
+                current_agent = await get_agent()
+                tasks = await current_agent.scheduler.store.get_user_tasks("web_user")
+                
+                if not tasks:
+                    return []
+                
+                from local_pigeon.core.scheduler import ScheduleType
+                
+                rows = []
+                for task in tasks:
+                    status = "✅ Active" if task.enabled else "⏸️ Paused"
+                    next_run = task.next_run.strftime("%m/%d %H:%M")
+                    last_run = task.last_run.strftime("%m/%d %H:%M") if task.last_run else "—"
+                    
+                    if task.schedule_type == ScheduleType.ONCE:
+                        schedule_desc = "One-time"
+                    elif task.schedule_type == ScheduleType.DAILY:
+                        h = task.schedule_data.get("hour", 9)
+                        m = task.schedule_data.get("minute", 0)
+                        schedule_desc = f"Daily {h:02d}:{m:02d}"
+                    elif task.schedule_type == ScheduleType.INTERVAL:
+                        parts = []
+                        if task.schedule_data.get("days"):
+                            parts.append(f"{task.schedule_data['days']}d")
+                        if task.schedule_data.get("hours"):
+                            parts.append(f"{task.schedule_data['hours']}h")
+                        if task.schedule_data.get("minutes"):
+                            parts.append(f"{task.schedule_data['minutes']}m")
+                        schedule_desc = f"Every {' '.join(parts)}"
+                    else:
+                        schedule_desc = task.schedule_type.value
+                    
+                    rows.append([
+                        status,
+                        task.name,
+                        schedule_desc,
+                        next_run,
+                        last_run,
+                        str(task.run_count),
+                        task.id[:8],
+                    ])
+                
+                return rows
+            except Exception:
+                return []
+
+        async def load_execution_history():
+            """Load task execution history for display."""
+            try:
+                current_agent = await get_agent()
+                history = await current_agent.scheduler.store.get_execution_history(
+                    user_id="web_user", limit=30,
+                )
+                
+                if not history:
+                    return []
+                
+                rows = []
+                for entry in history:
+                    executed_at = entry["executed_at"]
+                    try:
+                        from datetime import datetime as _dt
+                        dt = _dt.fromisoformat(executed_at)
+                        executed_at = dt.strftime("%m/%d %H:%M")
+                    except Exception:
+                        pass
+                    
+                    status = "✅" if entry["success"] else "❌"
+                    result = entry["result"][:120] + "…" if len(entry["result"]) > 120 else entry["result"]
+                    
+                    rows.append([executed_at, entry["task_name"], status, result])
+                
+                return rows
+            except Exception:
+                return []
+
+        async def refresh_tasks_panel():
+            """Refresh both tasks table and execution history together."""
+            tasks = await load_tasks_table()
+            history = await load_execution_history()
+            return tasks, history
+
+        async def task_action(task_id_prefix: str, action: str):
+            """Perform an action on a task: pause, resume, or delete."""
+            if not task_id_prefix or not task_id_prefix.strip():
+                return "Enter a task ID first."
+            
+            task_id_prefix = task_id_prefix.strip()
+            
+            try:
+                current_agent = await get_agent()
+                tasks = await current_agent.scheduler.store.get_user_tasks("web_user")
+                matching = [t for t in tasks if t.id.startswith(task_id_prefix)]
+                
+                if not matching:
+                    return f"No task found starting with '{task_id_prefix}'"
+                if len(matching) > 1:
+                    return f"Multiple tasks match '{task_id_prefix}'. Be more specific."
+                
+                task = matching[0]
+                
+                if action == "pause":
+                    await current_agent.scheduler.store.disable_task(task.id)
+                    return f"⏸️ Paused: {task.name}"
+                elif action == "resume":
+                    await current_agent.scheduler.store.enable_task(task.id)
+                    return f"▶️ Resumed: {task.name}"
+                elif action == "delete":
+                    await current_agent.scheduler.store.delete_task(task.id)
+                    return f"🗑️ Deleted: {task.name}"
+                else:
+                    return f"Unknown action: {action}"
+            except Exception as e:
+                return f"Error: {e}"
         
         async def refresh_models() -> tuple[gr.Dropdown, gr.Dropdown]:
             """Refresh available models - shows catalog models plus installed."""
@@ -2725,6 +2886,39 @@ def create_app(
             fn=poll_web_scheduled_notifications,
             inputs=[chatbot],
             outputs=[chatbot],
+        )
+
+        # Tasks tab events
+        refresh_tasks_btn.click(
+            fn=refresh_tasks_panel,
+            outputs=[tasks_table, execution_history_table],
+        )
+        
+        pause_task_btn.click(
+            fn=lambda tid: task_action(tid, "pause"),
+            inputs=[task_id_input],
+            outputs=[task_action_status],
+        ).then(
+            fn=refresh_tasks_panel,
+            outputs=[tasks_table, execution_history_table],
+        )
+        
+        resume_task_btn.click(
+            fn=lambda tid: task_action(tid, "resume"),
+            inputs=[task_id_input],
+            outputs=[task_action_status],
+        ).then(
+            fn=refresh_tasks_panel,
+            outputs=[tasks_table, execution_history_table],
+        )
+        
+        delete_task_btn.click(
+            fn=lambda tid: task_action(tid, "delete"),
+            inputs=[task_id_input],
+            outputs=[task_action_status],
+        ).then(
+            fn=refresh_tasks_panel,
+            outputs=[tasks_table, execution_history_table],
         )
         
         clear_btn.click(
