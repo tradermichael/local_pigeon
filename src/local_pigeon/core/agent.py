@@ -690,8 +690,15 @@ Timezone: {datetime.now().astimezone().tzinfo}
                 status_callback
             )
         
-        # Build the user message (no augmentation - we'll use tool messages instead)
-        user_msg = Message(role="user", content=user_message, images=images or [])
+        # Build the user message with inline date/time context so models that
+        # deprioritize system-prompt facts still see the current date.
+        from datetime import datetime as _dt
+        _now = _dt.now()
+        _date_ctx = (
+            f"[Current date: {_now.strftime('%A, %B %d, %Y')} | "
+            f"Time: {_now.strftime('%I:%M %p').lstrip('0')}]\n\n"
+        )
+        user_msg = Message(role="user", content=_date_ctx + user_message, images=images or [])
         
         messages = [
             Message(role="system", content=system_prompt),
