@@ -120,6 +120,7 @@ def create_app(
                                 choices=[settings.ollama.model],
                                 value=settings.ollama.model,
                                 interactive=True,
+                                allow_custom_value=True,
                                 scale=2,
                                 container=False,
                             )
@@ -329,6 +330,7 @@ def create_app(
                             choices=[settings.ollama.model],
                             value=settings.ollama.model,
                             interactive=True,
+                            allow_custom_value=True,
                             scale=3,
                         )
                         refresh_models_btn = gr.Button("🔄 Refresh", scale=1)
@@ -3782,7 +3784,19 @@ def create_app(
             fn=load_memories,
             outputs=[memories_display],
         )
-        
+
+        # Auto-populate model dropdowns on startup
+        async def _load_model_dropdowns():
+            """Populate all model dropdowns from Ollama on page load."""
+            main_dd, vision_dd = await refresh_models()
+            # Return same update for paired dropdowns (settings + chat tab)
+            return main_dd, main_dd, vision_dd, vision_dd
+
+        app.load(
+            fn=_load_model_dropdowns,
+            outputs=[model_dropdown, chat_model_dropdown, vision_model_dropdown, vision_dropdown],
+        )
+
         # Add Ctrl+Enter keyboard shortcut for sending messages
         app.load(
             fn=None,

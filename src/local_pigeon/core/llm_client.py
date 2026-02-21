@@ -333,13 +333,23 @@ class OllamaClient:
         
         self._sync_client = ollama.Client(host=host)
         self._async_client = AsyncClient(host=host)
+        self._client_loop: asyncio.AbstractEventLoop | None = None  # track which loop owns the client
     
     def _ensure_client(self) -> None:
-        """Ensure the async client is ready, recreating if closed."""
-        if self._closed:
-            logger.debug("Recreating closed async client")
+        """Ensure the async client is ready, recreating if closed or on a different event loop."""
+        try:
+            current_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            current_loop = None
+
+        if self._closed or (current_loop is not None and self._client_loop is not None and current_loop is not self._client_loop):
+            logger.debug("Recreating async client (closed=%s, loop_changed=%s)", self._closed, current_loop is not self._client_loop)
             self._async_client = AsyncClient(host=self.host)
             self._closed = False
+
+        # Remember which loop this client belongs to
+        if current_loop is not None:
+            self._client_loop = current_loop
     
     async def close(self) -> None:
         """Close the async client session."""
