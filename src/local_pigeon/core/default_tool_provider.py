@@ -59,6 +59,10 @@ class DefaultToolProvider(ToolProvider):
                 approval_settings=agent.settings.payments.approval,
             ))
 
+        # Financial / Accounting tools (Local Ledger)
+        from local_pigeon.tools.finance.ledger import LocalLedgerTool
+        tools.append(LocalLedgerTool())
+
         # Self-healing tools (Ralph Loop pattern) - always enabled
         from local_pigeon.tools.self_healing import (
             ViewFailureLogTool,
