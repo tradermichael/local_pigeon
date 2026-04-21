@@ -1520,11 +1520,13 @@ def create_app(
                 # Collect response with streaming and track status events
                 response_parts = []
                 status_lines = []
+                stream_queue = asyncio.Queue()
                 
-                def stream_callback(chunk: str) -> None:
+                async def stream_callback(chunk: str) -> None:
                     response_parts.append(chunk)
+                    await stream_queue.put({"type": "chunk"})
                 
-                def status_callback(event: StatusEvent) -> None:
+                async def status_callback(event: StatusEvent) -> None:
                     """Track status events for display."""
                     details = event.details or {}
                     # Format status based on event type
@@ -1546,8 +1548,11 @@ def create_app(
                         status_lines.append(f"🔄 {event.message}")
                     elif event.type == StatusType.DONE:
                         pass  # Don't show "done" - final response will follow
+                    
+                    await stream_queue.put({"type": "status"})
                 
-                response = await current_agent.chat(
+                # Start chat as a background task
+                chat_task = asyncio.create_task(current_agent.chat(
                     user_message=user_message,
                     user_id="web_user",
                     session_id="web_session",
@@ -1555,7 +1560,43 @@ def create_app(
                     stream_callback=stream_callback,
                     status_callback=status_callback,
                     images=images_b64 or None,
-                )
+                ))
+
+                # Loop to yield updates from the queue until task finishes
+                while not chat_task.done():
+                    try:
+                        # Wait for an update or timeout
+                        await asyncio.wait_for(stream_queue.get(), timeout=0.1)
+                        
+                        # Consume remaining items
+                        while not stream_queue.empty():
+                            stream_queue.get_nowait()
+                            
+                        # Rebuild current output
+                        current_response = "".join(response_parts)
+                        tool_call_count = len([l for l in status_lines if '🔧' in l])
+                        
+                        if tool_call_count > 0:
+                            status_log = "\n".join(status_lines)
+                            final_content = f"<details open><summary>🔍 Agent activity ({tool_call_count} tool calls)</summary>\n\n```\n{status_log}\n```\n\n</details>\n\n{current_response}"
+                        else:
+                            status_log = "\n".join(status_lines)
+                            if status_log:
+                                final_content = f"_{status_log}_\n\n{current_response}"
+                            else:
+                                final_content = current_response
+                                
+                        if not final_content.strip():
+                            final_content = "Thinking..."
+                            
+                        history[-1]["content"] = final_content
+                        yield history
+                        
+                    except asyncio.TimeoutError:
+                        continue
+
+                # Final result
+                response = chat_task.result()
                 
                 # Build final content with status log if tools were actually used
                 tool_call_count = len([l for l in status_lines if '🔧' in l])
