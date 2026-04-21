@@ -31,7 +31,7 @@ class LocalLedgerTool(Tool):
         description: str = Field(None, description="Description of the transaction")
         
     def __init__(self):
-        super().__init__()
+        super().__init__(name=self.name, description=self.description)
         self.db_path = get_data_dir() / "ledger.db"
         self._init_db()
         

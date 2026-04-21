@@ -420,6 +420,10 @@ def run(
         asyncio.run(main())
     except KeyboardInterrupt:
         pass  # Signal handler already took care of shutdown message
+    except Exception as e:
+        console.print(f"[red]Fatal Error:[/] {e}")
+        import traceback
+        traceback.print_exc()
     finally:
         console.print("[green]Goodbye! 🕊️[/]")
         sys.exit(0)
